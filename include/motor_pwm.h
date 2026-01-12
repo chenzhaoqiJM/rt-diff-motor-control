@@ -31,17 +31,17 @@ rt_err_t motors_pwm_init(void);
 
 /**
  * @brief 设置电机1的占空比
- * @param duty_percent 占空比百分比 (0-100)
+ * @param duty 占空比 (0.0 ~ 1.0)
  * @return RT_EOK 成功, 其他值表示失败
  */
-rt_err_t motor1_set_duty(rt_uint8_t duty_percent);
+rt_err_t motor1_set_duty(float duty);
 
 /**
  * @brief 设置电机2的占空比
- * @param duty_percent 占空比百分比 (0-100)
+ * @param duty 占空比 (0.0 ~ 1.0)
  * @return RT_EOK 成功, 其他值表示失败
  */
-rt_err_t motor2_set_duty(rt_uint8_t duty_percent);
+rt_err_t motor2_set_duty(float duty);
 
 /**
  * @brief 设置电机1的原始脉冲宽度

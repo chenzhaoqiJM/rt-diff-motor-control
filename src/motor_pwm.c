@@ -123,10 +123,10 @@ rt_err_t motors_pwm_init(void)
 
 /**
  * @brief 设置电机1的占空比
- * @param duty_percent 占空比百分比 (0-100)
+ * @param duty 占空比 (0.0 ~ 1.0)
  * @return RT_EOK 成功, 其他值表示失败
  */
-rt_err_t motor1_set_duty(rt_uint8_t duty_percent)
+rt_err_t motor1_set_duty(float duty)
 {
     rt_uint32_t pulse;
 
@@ -137,23 +137,27 @@ rt_err_t motor1_set_duty(rt_uint8_t duty_percent)
     }
 
     /* 限制占空比范围 */
-    if (duty_percent > 100)
+    if (duty < 0.0f)
     {
-        duty_percent = 100;
+        duty = 0.0f;
+    }
+    else if (duty > 1.0f)
+    {
+        duty = 1.0f;
     }
 
     /* 计算脉冲宽度 (ns) */
-    pulse = (PWM_PERIOD * duty_percent) / 100;
+    pulse = (rt_uint32_t)(PWM_PERIOD * duty);
 
     return rt_pwm_set(pwm_dev_motor1, PWM_CHANNEL, PWM_PERIOD, pulse);
 }
 
 /**
  * @brief 设置电机2的占空比
- * @param duty_percent 占空比百分比 (0-100)
+ * @param duty 占空比 (0.0 ~ 1.0)
  * @return RT_EOK 成功, 其他值表示失败
  */
-rt_err_t motor2_set_duty(rt_uint8_t duty_percent)
+rt_err_t motor2_set_duty(float duty)
 {
     rt_uint32_t pulse;
 
@@ -164,13 +168,17 @@ rt_err_t motor2_set_duty(rt_uint8_t duty_percent)
     }
 
     /* 限制占空比范围 */
-    if (duty_percent > 100)
+    if (duty < 0.0f)
     {
-        duty_percent = 100;
+        duty = 0.0f;
+    }
+    else if (duty > 1.0f)
+    {
+        duty = 1.0f;
     }
 
     /* 计算脉冲宽度 (ns) */
-    pulse = (PWM_PERIOD * duty_percent) / 100;
+    pulse = (rt_uint32_t)(PWM_PERIOD * duty);
 
     return rt_pwm_set(pwm_dev_motor2, PWM_CHANNEL, PWM_PERIOD, pulse);
 }
