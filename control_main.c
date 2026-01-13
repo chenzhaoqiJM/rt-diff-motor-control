@@ -30,12 +30,12 @@ int main(void)
 
     /* 初始化编码器并启动打印线程 */
     encoders_init();
-    encoder_print_thread_start();
+    // encoder_print_thread_start();
 
-    rt_kprintf("\nMotor control ready. Use 'motor' command:\n");
-    rt_kprintf("  motor 1,0.5;1,0.5   -- Both motors forward at 50%%\n");
-    rt_kprintf("  motor 0,0;0,0       -- Stop both motors\n");
-    rt_kprintf("  motor_stop          -- Emergency stop\n\n");
+    rt_kprintf("\nMotor control ready. Use 'cmd_motor' command:\n");
+    rt_kprintf("  cmd_motor 1,0.5;1,0.5   -- Both motors forward at 50%%\n");
+    rt_kprintf("  cmd_motor 0,0;0,0       -- Stop both motors\n");
+    rt_kprintf("  cmd_motor_stop          -- Emergency stop\n\n");
 
     return 0;
 }

@@ -35,6 +35,7 @@ static void encoder1_a_irq_callback(void *args)
     rt_uint8_t a_level = rt_pin_read(ENCODER_GPIO_MOTOR1_A);
     rt_uint8_t b_level = rt_pin_read(ENCODER_GPIO_MOTOR1_B);
 
+    rt_kprintf("[Encoder1] A=%d B=%d\n", a_level, b_level);
     if (a_level != encoder1_last_a)
     {
         if (a_level)
@@ -91,9 +92,17 @@ rt_err_t encoder1_init(void)
     encoder1_last_a = rt_pin_read(ENCODER_GPIO_MOTOR1_A);
 
     /* 只绑定A相中断，双边沿触发 */
-    rt_pin_attach_irq(ENCODER_GPIO_MOTOR1_A, PIN_IRQ_MODE_RISING_FALLING,
-                      encoder1_a_irq_callback, RT_NULL);
-    rt_pin_irq_enable(ENCODER_GPIO_MOTOR1_A, PIN_IRQ_ENABLE);
+    rt_err_t attach_ret = rt_pin_attach_irq(ENCODER_GPIO_MOTOR1_A, PIN_IRQ_MODE_RISING_FALLING,
+                                            encoder1_a_irq_callback, RT_NULL);
+    rt_kprintf("[Encoder1] rt_pin_attach_irq returned: %d\n", attach_ret);
+    
+    rt_err_t enable_ret = rt_pin_irq_enable(ENCODER_GPIO_MOTOR1_A, PIN_IRQ_ENABLE);
+    rt_kprintf("[Encoder1] rt_pin_irq_enable returned: %d\n", enable_ret);
+    
+    if (attach_ret != RT_EOK || enable_ret != RT_EOK)
+    {
+        rt_kprintf("[Encoder1] WARNING: IRQ setup may have failed!\n");
+    }
 
     encoder1_count = 0;
     encoder1_initialized = RT_TRUE;
@@ -264,3 +273,23 @@ rt_err_t encoder_print_thread_start(void)
         return -RT_ERROR;
     }
 }
+
+/* ================= 调试用 MSH 命令 ================= */
+
+/**
+ * @brief MSH 命令: 读取编码器 GPIO 电平 (用于调试)
+ *        用法: enc_gpio
+ */
+static void enc_gpio_cmd(int argc, char *argv[])
+{
+    rt_uint8_t a1 = rt_pin_read(ENCODER_GPIO_MOTOR1_A);
+    rt_uint8_t b1 = rt_pin_read(ENCODER_GPIO_MOTOR1_B);
+    rt_uint8_t a2 = rt_pin_read(ENCODER_GPIO_MOTOR2_A);
+    rt_uint8_t b2 = rt_pin_read(ENCODER_GPIO_MOTOR2_B);
+    
+    rt_kprintf("Encoder1: A(GPIO%d)=%d  B(GPIO%d)=%d\n", 
+               ENCODER_GPIO_MOTOR1_A, a1, ENCODER_GPIO_MOTOR1_B, b1);
+    rt_kprintf("Encoder2: A(GPIO%d)=%d  B(GPIO%d)=%d\n", 
+               ENCODER_GPIO_MOTOR2_A, a2, ENCODER_GPIO_MOTOR2_B, b2);
+}
+MSH_CMD_EXPORT_ALIAS(enc_gpio_cmd, enc_gpio, Read encoder GPIO levels for debug);
