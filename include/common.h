@@ -30,8 +30,8 @@
 
 
 /* ================= 编码器引脚参数设置 ================= */
-#define ENCODER_GPIO_MOTOR1_A   10
-#define ENCODER_GPIO_MOTOR1_B   11
+#define ENCODER_GPIO_MOTOR1_A   124
+#define ENCODER_GPIO_MOTOR1_B   118
 
 #define MOTOR1_ENCODER_PPR     11
 #define MOTOR1_ENCODER_CPR     (MOTOR1_ENCODER_PPR * 4) // CPR定义一圈产生多少个脉冲, 与gpio采样模式相关
@@ -49,8 +49,8 @@
 #define PWM_DEV_NAME_MOTOR_2    "rpwm8"     /* PWM设备名称 对应引脚 111 由设备树决定 */
 
 /* ================= 编码器引脚参数设置 ================= */
-#define ENCODER_GPIO_MOTOR2_A   20
-#define ENCODER_GPIO_MOTOR2_B   19
+#define ENCODER_GPIO_MOTOR2_A   62
+#define ENCODER_GPIO_MOTOR2_B   126
 
 #define MOTOR2_ENCODER_PPR     11
 #define MOTOR2_ENCODER_CPR     (MOTOR2_ENCODER_PPR * 4) // CPR定义一圈产生多少个脉冲, 与gpio采样模式相关
