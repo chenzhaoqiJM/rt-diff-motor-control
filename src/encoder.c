@@ -1,8 +1,9 @@
 /*
- * 编码器模块 (简化版)
+ * 编码器模块 (防抖版)
  *
  * 通过 GPIO 中断计数霍尔编码器脉冲
- * 支持正交编码器，判断旋转方向
+ * 只使用 A 相，使用状态机消除信号抖动
+ * 只有完整的 上升沿 -> 下降沿 才计为一个脉冲
  */
 
 #include <rtthread.h>
@@ -10,17 +11,17 @@
 #include "common.h"
 #include "encoder.h"
 
-/* 编码器计数器 (有符号，支持正反转) */
-static volatile rt_int32_t encoder1_count = 0;
-static volatile rt_int32_t encoder2_count = 0;
+/* 编码器计数器 (无符号，只累加) */
+static volatile rt_uint32_t encoder1_count = 0;
+static volatile rt_uint32_t encoder2_count = 0;
 
 /* 上一次读取时的计数值 (用于计算增量) */
-static rt_int32_t encoder1_last_count = 0;
-static rt_int32_t encoder2_last_count = 0;
+static rt_uint32_t encoder1_last_count = 0;
+static rt_uint32_t encoder2_last_count = 0;
 
-/* 上一次的A相电平状态 */
-static volatile rt_uint8_t encoder1_last_a = 0;
-static volatile rt_uint8_t encoder2_last_a = 0;
+/* 状态机：是否已检测到上升沿 (用于消抖) */
+static volatile rt_bool_t encoder1_has_rising = RT_FALSE;
+static volatile rt_bool_t encoder2_has_rising = RT_FALSE;
 
 /* 初始化标志 */
 static rt_bool_t encoder1_initialized = RT_FALSE;
@@ -28,49 +29,47 @@ static rt_bool_t encoder2_initialized = RT_FALSE;
 
 /**
  * @brief 编码器1 A相中断回调
- *        根据B相电平判断方向
+ *        使用状态机消抖：上升沿 + 下降沿 = 一个完整脉冲
  */
 static void encoder1_a_irq_callback(void *args)
 {
-    rt_uint8_t a_level = rt_pin_read(ENCODER_GPIO_MOTOR1_A);
-    rt_uint8_t b_level = rt_pin_read(ENCODER_GPIO_MOTOR1_B);
-
-    rt_kprintf("[Encoder1] A=%d B=%d\n", a_level, b_level);
-    if (a_level != encoder1_last_a)
+    (void)args;
+    rt_uint8_t level = rt_pin_read(ENCODER_GPIO_MOTOR1_A);
+    
+    if (level) /* 高电平 = 上升沿 */
     {
-        if (a_level)
+        encoder1_has_rising = RT_TRUE;
+    }
+    else /* 低电平 = 下降沿 */
+    {
+        if (encoder1_has_rising)
         {
-            /* A上升沿: B低=正转, B高=反转 */
-            encoder1_count += (b_level == 0) ? 1 : -1;
+            encoder1_count++;
+            encoder1_has_rising = RT_FALSE;
         }
-        else
-        {
-            /* A下降沿: B高=正转, B低=反转 */
-            encoder1_count += (b_level == 1) ? 1 : -1;
-        }
-        encoder1_last_a = a_level;
     }
 }
 
 /**
  * @brief 编码器2 A相中断回调
+ *        使用状态机消抖：上升沿 + 下降沿 = 一个完整脉冲
  */
 static void encoder2_a_irq_callback(void *args)
 {
-    rt_uint8_t a_level = rt_pin_read(ENCODER_GPIO_MOTOR2_A);
-    rt_uint8_t b_level = rt_pin_read(ENCODER_GPIO_MOTOR2_B);
-
-    if (a_level != encoder2_last_a)
+    (void)args;
+    rt_uint8_t level = rt_pin_read(ENCODER_GPIO_MOTOR2_A);
+    
+    if (level) /* 高电平 = 上升沿 */
     {
-        if (a_level)
+        encoder2_has_rising = RT_TRUE;
+    }
+    else /* 低电平 = 下降沿 */
+    {
+        if (encoder2_has_rising)
         {
-            encoder2_count += (b_level == 0) ? 1 : -1;
+            encoder2_count++;
+            encoder2_has_rising = RT_FALSE;
         }
-        else
-        {
-            encoder2_count += (b_level == 1) ? 1 : -1;
-        }
-        encoder2_last_a = a_level;
     }
 }
 
@@ -84,14 +83,10 @@ rt_err_t encoder1_init(void)
         return RT_EOK;
     }
 
-    /* 配置为输入模式 */
+    /* 配置 A 相为输入模式 */
     rt_pin_mode(ENCODER_GPIO_MOTOR1_A, PIN_MODE_INPUT);
-    rt_pin_mode(ENCODER_GPIO_MOTOR1_B, PIN_MODE_INPUT);
 
-    /* 读取初始状态 */
-    encoder1_last_a = rt_pin_read(ENCODER_GPIO_MOTOR1_A);
-
-    /* 只绑定A相中断，双边沿触发 */
+    /* 绑定 A 相中断，双边沿触发 */
     rt_err_t attach_ret = rt_pin_attach_irq(ENCODER_GPIO_MOTOR1_A, PIN_IRQ_MODE_RISING_FALLING,
                                             encoder1_a_irq_callback, RT_NULL);
     rt_kprintf("[Encoder1] rt_pin_attach_irq returned: %d\n", attach_ret);
@@ -107,8 +102,7 @@ rt_err_t encoder1_init(void)
     encoder1_count = 0;
     encoder1_initialized = RT_TRUE;
 
-    rt_kprintf("[Encoder1] Init OK (A=%d, B=%d)\n",
-               ENCODER_GPIO_MOTOR1_A, ENCODER_GPIO_MOTOR1_B);
+    rt_kprintf("[Encoder1] Init OK (A=GPIO%d)\n", ENCODER_GPIO_MOTOR1_A);
 
     return RT_EOK;
 }
@@ -123,14 +117,10 @@ rt_err_t encoder2_init(void)
         return RT_EOK;
     }
 
-    /* 配置为输入模式 */
+    /* 配置 A 相为输入模式 */
     rt_pin_mode(ENCODER_GPIO_MOTOR2_A, PIN_MODE_INPUT);
-    rt_pin_mode(ENCODER_GPIO_MOTOR2_B, PIN_MODE_INPUT);
 
-    /* 读取初始状态 */
-    encoder2_last_a = rt_pin_read(ENCODER_GPIO_MOTOR2_A);
-
-    /* 只绑定A相中断 */
+    /* 绑定 A 相中断，双边沿触发 */
     rt_pin_attach_irq(ENCODER_GPIO_MOTOR2_A, PIN_IRQ_MODE_RISING_FALLING,
                       encoder2_a_irq_callback, RT_NULL);
     rt_pin_irq_enable(ENCODER_GPIO_MOTOR2_A, PIN_IRQ_ENABLE);
@@ -138,8 +128,7 @@ rt_err_t encoder2_init(void)
     encoder2_count = 0;
     encoder2_initialized = RT_TRUE;
 
-    rt_kprintf("[Encoder2] Init OK (A=%d, B=%d)\n",
-               ENCODER_GPIO_MOTOR2_A, ENCODER_GPIO_MOTOR2_B);
+    rt_kprintf("[Encoder2] Init OK (A=GPIO%d)\n", ENCODER_GPIO_MOTOR2_A);
 
     return RT_EOK;
 }
@@ -157,7 +146,7 @@ rt_err_t encoders_init(void)
 /**
  * @brief 获取编码器1脉冲计数
  */
-rt_int32_t encoder1_get_count(void)
+rt_uint32_t encoder1_get_count(void)
 {
     return encoder1_count;
 }
@@ -165,7 +154,7 @@ rt_int32_t encoder1_get_count(void)
 /**
  * @brief 获取编码器2脉冲计数
  */
-rt_int32_t encoder2_get_count(void)
+rt_uint32_t encoder2_get_count(void)
 {
     return encoder2_count;
 }
@@ -198,12 +187,12 @@ void encoders_reset(void)
 /**
  * @brief 获取编码器1在一个周期内的脉冲增量
  *        调用后会更新 last_count
- * @return 自上次调用以来的脉冲增量 (正=正转, 负=反转)
+ * @return 自上次调用以来的脉冲增量
  */
-rt_int32_t encoder1_get_delta(void)
+rt_uint32_t encoder1_get_delta(void)
 {
-    rt_int32_t current = encoder1_count;
-    rt_int32_t delta = current - encoder1_last_count;
+    rt_uint32_t current = encoder1_count;
+    rt_uint32_t delta = current - encoder1_last_count;
     encoder1_last_count = current;
     return delta;
 }
@@ -211,12 +200,12 @@ rt_int32_t encoder1_get_delta(void)
 /**
  * @brief 获取编码器2在一个周期内的脉冲增量
  *        调用后会更新 last_count
- * @return 自上次调用以来的脉冲增量 (正=正转, 负=反转)
+ * @return 自上次调用以来的脉冲增量
  */
-rt_int32_t encoder2_get_delta(void)
+rt_uint32_t encoder2_get_delta(void)
 {
-    rt_int32_t current = encoder2_count;
-    rt_int32_t delta = current - encoder2_last_count;
+    rt_uint32_t current = encoder2_count;
+    rt_uint32_t delta = current - encoder2_last_count;
     encoder2_last_count = current;
     return delta;
 }
@@ -235,14 +224,27 @@ static rt_thread_t encoder_print_thread = RT_NULL;
  */
 static void encoder_print_thread_entry(void *parameter)
 {
+    (void)parameter;
     while (1)
     {
-        rt_int32_t count1 = encoder1_get_count();
-        rt_int32_t count2 = encoder2_get_count();
-        rt_int32_t delta1 = encoder1_get_delta();
-        rt_int32_t delta2 = encoder2_get_delta();
+        rt_uint32_t count1 = encoder1_get_count();
+        rt_uint32_t count2 = encoder2_get_count();
+        rt_uint32_t delta1 = encoder1_get_delta();
+        rt_uint32_t delta2 = encoder2_get_delta();
 
-        rt_kprintf("[Encoder] C1=%d C2=%d D1=%d D2=%d\n", count1, count2, delta1, delta2);
+        /*
+         * 转速计算 (使用整数运算，避免浮点):
+         * RPM = (脉冲数 / PPR / 减速比) * 60 * 采样频率
+         *     = delta * 60 * 20 / (PPR * 减速比)
+         *     = delta * 1200 / (PPR * 减速比)
+         * 
+         * 为避免整数溢出和精度丢失，先乘后除
+         */
+        rt_uint32_t rpm1 = delta1 * 1200 / (MOTOR1_ENCODER_PPR * MOTOR1_REDUCTION_RATIO);
+        rt_uint32_t rpm2 = delta2 * 1200 / (MOTOR2_ENCODER_PPR * MOTOR2_REDUCTION_RATIO);
+
+        rt_kprintf("[Encoder] C1=%u C2=%u D1=%u D2=%u RPM1=%u RPM2=%u\n", 
+                   count1, count2, delta1, delta2, rpm1, rpm2);
 
         /* 休眠 50ms, 实现 20Hz 频率 */
         rt_thread_mdelay(50);
@@ -277,19 +279,17 @@ rt_err_t encoder_print_thread_start(void)
 /* ================= 调试用 MSH 命令 ================= */
 
 /**
- * @brief MSH 命令: 读取编码器 GPIO 电平 (用于调试)
+ * @brief MSH 命令: 读取编码器 A 相 GPIO 电平 (用于调试)
  *        用法: enc_gpio
  */
 static void enc_gpio_cmd(int argc, char *argv[])
 {
+    (void)argc;
+    (void)argv;
     rt_uint8_t a1 = rt_pin_read(ENCODER_GPIO_MOTOR1_A);
-    rt_uint8_t b1 = rt_pin_read(ENCODER_GPIO_MOTOR1_B);
     rt_uint8_t a2 = rt_pin_read(ENCODER_GPIO_MOTOR2_A);
-    rt_uint8_t b2 = rt_pin_read(ENCODER_GPIO_MOTOR2_B);
     
-    rt_kprintf("Encoder1: A(GPIO%d)=%d  B(GPIO%d)=%d\n", 
-               ENCODER_GPIO_MOTOR1_A, a1, ENCODER_GPIO_MOTOR1_B, b1);
-    rt_kprintf("Encoder2: A(GPIO%d)=%d  B(GPIO%d)=%d\n", 
-               ENCODER_GPIO_MOTOR2_A, a2, ENCODER_GPIO_MOTOR2_B, b2);
+    rt_kprintf("Encoder1: A(GPIO%d)=%d\n", ENCODER_GPIO_MOTOR1_A, a1);
+    rt_kprintf("Encoder2: A(GPIO%d)=%d\n", ENCODER_GPIO_MOTOR2_A, a2);
 }
-MSH_CMD_EXPORT_ALIAS(enc_gpio_cmd, enc_gpio, Read encoder GPIO levels for debug);
+MSH_CMD_EXPORT_ALIAS(enc_gpio_cmd, enc_gpio, Read encoder A-phase GPIO levels for debug);

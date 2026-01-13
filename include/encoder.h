@@ -16,13 +16,13 @@ rt_err_t encoder1_init(void);
 rt_err_t encoder2_init(void);
 rt_err_t encoders_init(void);
 
-/* 获取脉冲计数 (正=正转, 负=反转) */
-rt_int32_t encoder1_get_count(void);
-rt_int32_t encoder2_get_count(void);
+/* 获取脉冲计数 (只累加，无方向) */
+rt_uint32_t encoder1_get_count(void);
+rt_uint32_t encoder2_get_count(void);
 
-/* 获取周期内脉冲增量 (调用后更新last_count, 考虑溢出) */
-rt_int32_t encoder1_get_delta(void);
-rt_int32_t encoder2_get_delta(void);
+/* 获取周期内脉冲增量 (调用后更新last_count) */
+rt_uint32_t encoder1_get_delta(void);
+rt_uint32_t encoder2_get_delta(void);
 
 /* 重置计数 */
 void encoder1_reset(void);

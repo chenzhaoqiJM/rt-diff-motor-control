@@ -30,32 +30,27 @@
 
 
 /* ================= 编码器引脚参数设置 ================= */
-#define ENCODER_GPIO_MOTOR1_A   124
-#define ENCODER_GPIO_MOTOR1_B   118
+#define ENCODER_GPIO_MOTOR1_A   158
 
 #define MOTOR1_ENCODER_PPR     11
-#define MOTOR1_ENCODER_CPR     (MOTOR1_ENCODER_PPR * 4) // CPR定义一圈产生多少个脉冲, 与gpio采样模式相关
-
-#define MOTOR1_REDUCTION_RATIO 30 // 减速比
+#define MOTOR1_REDUCTION_RATIO 56 // 减速比
 
 // Motor2 --------------------------------------------------------------------------------------------------
 
 /* ================= GPIO 输出引脚定义, 控制电机正反转的 ================= */
 #define GPIO_OUTPUT_IO_MOTOR2_0    71
-#define GPIO_OUTPUT_IO_MOTOR2_1    63
+#define GPIO_OUTPUT_IO_MOTOR2_1    61
 
 /* ================= PWM ================= */
 
 #define PWM_DEV_NAME_MOTOR_2    "rpwm8"     /* PWM设备名称 对应引脚 111 由设备树决定 */
 
 /* ================= 编码器引脚参数设置 ================= */
-#define ENCODER_GPIO_MOTOR2_A   62
-#define ENCODER_GPIO_MOTOR2_B   126
+#define ENCODER_GPIO_MOTOR2_A   159
 
 #define MOTOR2_ENCODER_PPR     11
-#define MOTOR2_ENCODER_CPR     (MOTOR2_ENCODER_PPR * 4) // CPR定义一圈产生多少个脉冲, 与gpio采样模式相关
 
-#define MOTOR2_REDUCTION_RATIO 30 // 减速比
+#define MOTOR2_REDUCTION_RATIO 56 // 减速比
 
 
 #endif  // MYCOMMON_H
