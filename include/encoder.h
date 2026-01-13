@@ -29,8 +29,12 @@ void encoder1_reset(void);
 void encoder2_reset(void);
 void encoders_reset(void);
 
-/* 启动编码器打印线程 (20Hz) */
+/* 启动编码器读取线程 (20Hz) */
 rt_err_t encoder_print_thread_start(void);
+
+/* 获取共享的 delta 值 (供底盘控制线程读取) */
+rt_uint32_t encoder_get_shared_delta1(void);
+rt_uint32_t encoder_get_shared_delta2(void);
 
 #ifdef __cplusplus
 }

@@ -1,9 +1,9 @@
 /*
- * 编码器模块 (防抖版)
+ * 编码器模块 (动态消抖版)
  *
  * 通过 GPIO 中断计数霍尔编码器脉冲
- * 只使用 A 相，使用状态机消除信号抖动
- * 只有完整的 上升沿 -> 下降沿 才计为一个脉冲
+ * 只使用 A 相，下降沿触发计数
+ * 消抖时间根据速度(shared_delta)动态调整
  */
 
 #include <rtthread.h>
@@ -19,57 +19,113 @@ static volatile rt_uint32_t encoder2_count = 0;
 static rt_uint32_t encoder1_last_count = 0;
 static rt_uint32_t encoder2_last_count = 0;
 
-/* 状态机：是否已检测到上升沿 (用于消抖) */
-static volatile rt_bool_t encoder1_has_rising = RT_FALSE;
-static volatile rt_bool_t encoder2_has_rising = RT_FALSE;
-
 /* 初始化标志 */
 static rt_bool_t encoder1_initialized = RT_FALSE;
 static rt_bool_t encoder2_initialized = RT_FALSE;
 
+/* ================= 动态消抖机制 (微秒级精度) ================= */
+
+/*
+ * 使用 24MHz 硬件定时器实现微秒级消抖
+ * SOC_TIMER_FREQ = 24000000, 每微秒 24 个计数
+ */
+#include <clint.h>  /* for SysTimer_GetLoadValue() */
+
+#define TIMER_COUNTS_PER_US  24   /* 24MHz = 24 counts/us */
+#define TIMER_COUNTS_PER_MS  24000  /* 24MHz = 24000 counts/ms */
+
+/* 上一次有效中断的时间戳 (硬件定时器计数值) */
+static volatile rt_uint64_t encoder1_last_time = 0;
+static volatile rt_uint64_t encoder2_last_time = 0;
+
+/* 
+ * 消抖时间阈值 (单位: 微秒)
+ * 可动态调整: 高速时减小，低速时增大
+ * 默认值: 1000us = 1ms
+ */
+static volatile rt_uint32_t encoder1_debounce_us = 1000;
+static volatile rt_uint32_t encoder2_debounce_us = 1000;
+
+/**
+ * @brief 设置编码器1的消抖时间
+ * @param us 消抖时间 (单位: 微秒)
+ */
+void encoder1_set_debounce(rt_uint32_t us)
+{
+    encoder1_debounce_us = us;
+}
+
+/**
+ * @brief 设置编码器2的消抖时间
+ * @param us 消抖时间 (单位: 微秒)
+ */
+void encoder2_set_debounce(rt_uint32_t us)
+{
+    encoder2_debounce_us = us;
+}
+
+/**
+ * @brief 根据 delta 值动态计算消抖时间 (微秒)
+ *        delta 越大 (速度越快)，消抖时间越短
+ *        delta 越小 (速度越慢)，消抖时间越长
+ * @param delta 上一周期的脉冲增量
+ * @return 建议的消抖时间 (微秒)
+ */
+static rt_uint32_t calc_debounce_us(rt_uint32_t delta)
+{
+    /*
+     * 动态消抖策略 (微秒级):
+     * - delta >= 100: 高速, 消抖 100us
+     * - delta >= 50:  中高速, 消抖 200us
+     * - delta >= 20:  中速, 消抖 500us
+     * - delta >= 5:   低速, 消抖 1000us (1ms)
+     * - delta < 5:    极低速/静止, 消抖 2000us (2ms)
+     */
+    if (delta >= 100)
+        return 100;
+    else if (delta >= 50)
+        return 200;
+    else if (delta >= 20)
+        return 500;
+    else if (delta >= 5)
+        return 1000;
+    else
+        return 2000;
+}
+
 /**
  * @brief 编码器1 A相中断回调
- *        使用状态机消抖：上升沿 + 下降沿 = 一个完整脉冲
+ *        下降沿触发，带微秒级时间消抖
  */
 static void encoder1_a_irq_callback(void *args)
 {
     (void)args;
-    rt_uint8_t level = rt_pin_read(ENCODER_GPIO_MOTOR1_A);
+    rt_uint64_t now = SysTimer_GetLoadValue();
+    rt_uint64_t threshold = (rt_uint64_t)encoder1_debounce_us * TIMER_COUNTS_PER_US;
     
-    if (level) /* 高电平 = 上升沿 */
+    /* 消抖: 如果距离上次中断时间太短，忽略 */
+    if ((now - encoder1_last_time) >= threshold)
     {
-        encoder1_has_rising = RT_TRUE;
-    }
-    else /* 低电平 = 下降沿 */
-    {
-        if (encoder1_has_rising)
-        {
-            encoder1_count++;
-            encoder1_has_rising = RT_FALSE;
-        }
+        encoder1_count++;
+        encoder1_last_time = now;
     }
 }
 
 /**
  * @brief 编码器2 A相中断回调
- *        使用状态机消抖：上升沿 + 下降沿 = 一个完整脉冲
+ *        下降沿触发，带微秒级时间消抖
  */
 static void encoder2_a_irq_callback(void *args)
 {
     (void)args;
-    rt_uint8_t level = rt_pin_read(ENCODER_GPIO_MOTOR2_A);
+    rt_uint64_t now = SysTimer_GetLoadValue();
+    rt_uint64_t threshold = (rt_uint64_t)encoder2_debounce_us * TIMER_COUNTS_PER_US;
     
-    if (level) /* 高电平 = 上升沿 */
+    /* 消抖: 如果距离上次中断时间太短，忽略 */
+    if ((now - encoder2_last_time) >= threshold)
     {
-        encoder2_has_rising = RT_TRUE;
-    }
-    else /* 低电平 = 下降沿 */
-    {
-        if (encoder2_has_rising)
-        {
-            encoder2_count++;
-            encoder2_has_rising = RT_FALSE;
-        }
+        encoder2_count++;
+        encoder2_last_time = now;
     }
 }
 
@@ -86,8 +142,8 @@ rt_err_t encoder1_init(void)
     /* 配置 A 相为输入模式 */
     rt_pin_mode(ENCODER_GPIO_MOTOR1_A, PIN_MODE_INPUT);
 
-    /* 绑定 A 相中断，双边沿触发 */
-    rt_err_t attach_ret = rt_pin_attach_irq(ENCODER_GPIO_MOTOR1_A, PIN_IRQ_MODE_RISING_FALLING,
+    /* 绑定 A 相中断，下降沿触发 */
+    rt_err_t attach_ret = rt_pin_attach_irq(ENCODER_GPIO_MOTOR1_A, PIN_IRQ_MODE_FALLING,
                                             encoder1_a_irq_callback, RT_NULL);
     rt_kprintf("[Encoder1] rt_pin_attach_irq returned: %d\n", attach_ret);
     
@@ -120,8 +176,8 @@ rt_err_t encoder2_init(void)
     /* 配置 A 相为输入模式 */
     rt_pin_mode(ENCODER_GPIO_MOTOR2_A, PIN_MODE_INPUT);
 
-    /* 绑定 A 相中断，双边沿触发 */
-    rt_pin_attach_irq(ENCODER_GPIO_MOTOR2_A, PIN_IRQ_MODE_RISING_FALLING,
+    /* 绑定 A 相中断，下降沿触发 */
+    rt_pin_attach_irq(ENCODER_GPIO_MOTOR2_A, PIN_IRQ_MODE_FALLING,
                       encoder2_a_irq_callback, RT_NULL);
     rt_pin_irq_enable(ENCODER_GPIO_MOTOR2_A, PIN_IRQ_ENABLE);
 
@@ -144,73 +200,38 @@ rt_err_t encoders_init(void)
 }
 
 /**
- * @brief 获取编码器1脉冲计数
- */
-rt_uint32_t encoder1_get_count(void)
-{
-    return encoder1_count;
-}
-
-/**
- * @brief 获取编码器2脉冲计数
- */
-rt_uint32_t encoder2_get_count(void)
-{
-    return encoder2_count;
-}
-
-/**
- * @brief 重置编码器1计数
- */
-void encoder1_reset(void)
-{
-    encoder1_count = 0;
-}
-
-/**
- * @brief 重置编码器2计数
- */
-void encoder2_reset(void)
-{
-    encoder2_count = 0;
-}
-
-/**
- * @brief 重置两个编码器
- */
-void encoders_reset(void)
-{
-    encoder1_reset();
-    encoder2_reset();
-}
-
-/**
  * @brief 获取编码器1在一个周期内的脉冲增量
- *        调用后会更新 last_count
  * @return 自上次调用以来的脉冲增量
  */
 rt_uint32_t encoder1_get_delta(void)
 {
+    rt_base_t level = rt_hw_interrupt_disable();
+    
     rt_uint32_t current = encoder1_count;
     rt_uint32_t delta = current - encoder1_last_count;
     encoder1_last_count = current;
+    
+    rt_hw_interrupt_enable(level);
     return delta;
 }
 
 /**
  * @brief 获取编码器2在一个周期内的脉冲增量
- *        调用后会更新 last_count
  * @return 自上次调用以来的脉冲增量
  */
 rt_uint32_t encoder2_get_delta(void)
 {
+    rt_base_t level = rt_hw_interrupt_disable();
+    
     rt_uint32_t current = encoder2_count;
     rt_uint32_t delta = current - encoder2_last_count;
     encoder2_last_count = current;
+    
+    rt_hw_interrupt_enable(level);
     return delta;
 }
 
-/* ================= 编码器打印线程 ================= */
+/* ================= 编码器读取线程 ================= */
 
 #define ENCODER_PRINT_THREAD_STACK_SIZE  4096
 #define ENCODER_PRINT_THREAD_PRIORITY    12
@@ -218,33 +239,43 @@ rt_uint32_t encoder2_get_delta(void)
 
 static rt_thread_t encoder_print_thread = RT_NULL;
 
+/* 共享的 delta 值，供底盘控制线程读取 */
+static volatile rt_uint32_t shared_delta1 = 0;
+static volatile rt_uint32_t shared_delta2 = 0;
+
 /**
- * @brief 编码器脉冲打印线程入口函数
- *        以 20Hz 频率打印两个编码器的脉冲计数
+ * @brief 获取共享的 delta1 值
+ */
+rt_uint32_t encoder_get_shared_delta1(void)
+{
+    return shared_delta1;
+}
+
+/**
+ * @brief 获取共享的 delta2 值
+ */
+rt_uint32_t encoder_get_shared_delta2(void)
+{
+    return shared_delta2;
+}
+
+/**
+ * @brief 编码器读取线程入口函数
+ *        以 20Hz 频率读取编码器脉冲增量
+ *        同时根据速度动态调整消抖参数
  */
 static void encoder_print_thread_entry(void *parameter)
 {
     (void)parameter;
     while (1)
     {
-        rt_uint32_t count1 = encoder1_get_count();
-        rt_uint32_t count2 = encoder2_get_count();
-        rt_uint32_t delta1 = encoder1_get_delta();
-        rt_uint32_t delta2 = encoder2_get_delta();
+        /* 读取 delta 值，更新共享变量 */
+        shared_delta1 = encoder1_get_delta();
+        shared_delta2 = encoder2_get_delta();
 
-        /*
-         * 转速计算 (使用整数运算，避免浮点):
-         * RPM = (脉冲数 / PPR / 减速比) * 60 * 采样频率
-         *     = delta * 60 * 20 / (PPR * 减速比)
-         *     = delta * 1200 / (PPR * 减速比)
-         * 
-         * 为避免整数溢出和精度丢失，先乘后除
-         */
-        rt_uint32_t rpm1 = delta1 * 1200 / (MOTOR1_ENCODER_PPR * MOTOR1_REDUCTION_RATIO);
-        rt_uint32_t rpm2 = delta2 * 1200 / (MOTOR2_ENCODER_PPR * MOTOR2_REDUCTION_RATIO);
-
-        rt_kprintf("[Encoder] C1=%u C2=%u D1=%u D2=%u RPM1=%u RPM2=%u\n", 
-                   count1, count2, delta1, delta2, rpm1, rpm2);
+        /* 根据当前速度动态调整消抖时间 (微秒) */
+        encoder1_debounce_us = calc_debounce_us(shared_delta1);
+        encoder2_debounce_us = calc_debounce_us(shared_delta2);
 
         /* 休眠 50ms, 实现 20Hz 频率 */
         rt_thread_mdelay(50);
