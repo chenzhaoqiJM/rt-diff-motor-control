@@ -46,7 +46,7 @@
 #define PWM_DEV_NAME_MOTOR_2    "rpwm8"     /* PWM设备名称 对应引脚 111 由设备树决定 */
 
 /* ================= 编码器引脚参数设置 ================= */
-#define ENCODER_GPIO_MOTOR2_A   159
+#define ENCODER_GPIO_MOTOR2_A   163
 
 #define MOTOR2_ENCODER_PPR     11
 
