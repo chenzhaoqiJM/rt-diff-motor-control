@@ -287,17 +287,22 @@ rt_err_t encoder_print_thread_start(void)
 /* ================= 调试用 MSH 命令 ================= */
 
 /**
- * @brief MSH 命令: 读取编码器 A 相 GPIO 电平 (用于调试)
- *        用法: enc_gpio
+ * @brief MSH 命令: 读取编码器 delta 和速度 (用于调试)
+ *        用法: enc_info
  */
-static void enc_gpio_cmd(int argc, char *argv[])
+static void enc_info_cmd(int argc, char *argv[])
 {
     (void)argc;
     (void)argv;
-    rt_uint8_t a1 = rt_pin_read(ENCODER_GPIO_MOTOR1_A);
-    rt_uint8_t a2 = rt_pin_read(ENCODER_GPIO_MOTOR2_A);
     
-    rt_kprintf("Encoder1: A(GPIO%d)=%d\n", ENCODER_GPIO_MOTOR1_A, a1);
-    rt_kprintf("Encoder2: A(GPIO%d)=%d\n", ENCODER_GPIO_MOTOR2_A, a2);
+    rt_uint32_t delta1 = encoder_get_shared_delta1();
+    rt_uint32_t delta2 = encoder_get_shared_delta2();
+    float speed1 = encoder_get_shared_speed1();
+    float speed2 = encoder_get_shared_speed2();
+    
+    rt_kprintf("Encoder1: delta=%u, speed=%d mr/s (%.3f r/s)\n", 
+               delta1, (int)(speed1*1000), speed1);
+    rt_kprintf("Encoder2: delta=%u, speed=%d mr/s (%.3f r/s)\n", 
+               delta2, (int)(speed2*1000), speed2);
 }
-MSH_CMD_EXPORT_ALIAS(enc_gpio_cmd, enc_gpio, Read encoder A-phase GPIO levels for debug);
+MSH_CMD_EXPORT_ALIAS(enc_info_cmd, enc_info, Read encoder delta and speed for debug);
