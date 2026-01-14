@@ -83,8 +83,8 @@ rt_err_t encoder1_init(void)
         return RT_EOK;
     }
 
-    /* 配置 A 相为输入模式 */
-    rt_pin_mode(ENCODER_GPIO_MOTOR1_A, PIN_MODE_INPUT);
+    /* 配置 A 相为输入模式 (内部上拉) */
+    rt_pin_mode(ENCODER_GPIO_MOTOR1_A, PIN_MODE_INPUT_PULLUP);
 
     /* 绑定 A 相中断，双边沿触发 */
     rt_err_t attach_ret = rt_pin_attach_irq(ENCODER_GPIO_MOTOR1_A, PIN_IRQ_MODE_RISING_FALLING,
@@ -117,8 +117,8 @@ rt_err_t encoder2_init(void)
         return RT_EOK;
     }
 
-    /* 配置 A 相为输入模式 */
-    rt_pin_mode(ENCODER_GPIO_MOTOR2_A, PIN_MODE_INPUT);
+    /* 配置 A 相为输入模式 (内部上拉) */
+    rt_pin_mode(ENCODER_GPIO_MOTOR2_A, PIN_MODE_INPUT_PULLUP);
 
     /* 绑定 A 相中断，双边沿触发 */
     rt_pin_attach_irq(ENCODER_GPIO_MOTOR2_A, PIN_IRQ_MODE_RISING_FALLING,
