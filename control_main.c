@@ -89,6 +89,9 @@ static void chassis_ctrl_thread_entry(void *parameter)
         duty1 = PID_FF_Update(&pid_motor1, actual_speed1, pwm_ff1);
         duty2 = PID_FF_Update(&pid_motor2, actual_speed2, pwm_ff2);
 
+        // duty1 = pwm_ff1;
+        // duty2 = pwm_ff2;
+
         /* 执行电机控制 */
         motor_control(1, dir1, (float)duty1);
         motor_control(2, dir2, (float)duty2);
@@ -100,8 +103,8 @@ static void chassis_ctrl_thread_entry(void *parameter)
                    (int)(target_speed1*1000), (int)(target_speed2*1000),
                    (int)(duty1*100), (int)(duty2*100));
 
-        /* 休眠 33ms, 实现 30Hz 控制频率 */
-        rt_thread_mdelay(33);
+        /* 休眠 20ms, 实现 50Hz 控制频率 */
+        rt_thread_mdelay(20);
     }
 }
 

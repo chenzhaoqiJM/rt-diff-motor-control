@@ -35,7 +35,7 @@ static void encoder1_a_irq_callback(void *args)
 {
     (void)args;
     rt_uint8_t level = rt_pin_read(ENCODER_GPIO_MOTOR1_A);
-    
+
     if (level) /* 高电平 = 上升沿 */
     {
         encoder1_has_rising = RT_TRUE;
@@ -58,7 +58,7 @@ static void encoder2_a_irq_callback(void *args)
 {
     (void)args;
     rt_uint8_t level = rt_pin_read(ENCODER_GPIO_MOTOR2_A);
-    
+
     if (level) /* 高电平 = 上升沿 */
     {
         encoder2_has_rising = RT_TRUE;
@@ -69,6 +69,7 @@ static void encoder2_a_irq_callback(void *args)
         {
             encoder2_count++;
             encoder2_has_rising = RT_FALSE;
+
         }
     }
 }
@@ -90,16 +91,18 @@ rt_err_t encoder1_init(void)
     rt_err_t attach_ret = rt_pin_attach_irq(ENCODER_GPIO_MOTOR1_A, PIN_IRQ_MODE_RISING_FALLING,
                                             encoder1_a_irq_callback, RT_NULL);
     rt_kprintf("[Encoder1] rt_pin_attach_irq returned: %d\n", attach_ret);
-    
+
     rt_err_t enable_ret = rt_pin_irq_enable(ENCODER_GPIO_MOTOR1_A, PIN_IRQ_ENABLE);
     rt_kprintf("[Encoder1] rt_pin_irq_enable returned: %d\n", enable_ret);
-    
+
     if (attach_ret != RT_EOK || enable_ret != RT_EOK)
     {
         rt_kprintf("[Encoder1] WARNING: IRQ setup may have failed!\n");
     }
 
     encoder1_count = 0;
+    encoder1_last_count = 0;
+    encoder1_has_rising = RT_FALSE;
     encoder1_initialized = RT_TRUE;
 
     rt_kprintf("[Encoder1] Init OK (A=GPIO%d)\n", ENCODER_GPIO_MOTOR1_A);
@@ -126,6 +129,8 @@ rt_err_t encoder2_init(void)
     rt_pin_irq_enable(ENCODER_GPIO_MOTOR2_A, PIN_IRQ_ENABLE);
 
     encoder2_count = 0;
+    encoder2_last_count = 0;
+    encoder2_has_rising = RT_FALSE;
     encoder2_initialized = RT_TRUE;
 
     rt_kprintf("[Encoder2] Init OK (A=GPIO%d)\n", ENCODER_GPIO_MOTOR2_A);
@@ -149,11 +154,10 @@ rt_err_t encoders_init(void)
  */
 rt_uint32_t encoder1_get_delta(void)
 {
-    
     rt_uint32_t current = encoder1_count;
     rt_uint32_t delta = current - encoder1_last_count;
     encoder1_last_count = current;
-    
+
     return delta;
 }
 
@@ -163,21 +167,25 @@ rt_uint32_t encoder1_get_delta(void)
  */
 rt_uint32_t encoder2_get_delta(void)
 {
-    
     rt_uint32_t current = encoder2_count;
     rt_uint32_t delta = current - encoder2_last_count;
     encoder2_last_count = current;
-    
+
     return delta;
 }
 
 /* ================= 编码器读取线程 ================= */
 
-#define ENCODER_PRINT_THREAD_STACK_SIZE  4096
-#define ENCODER_PRINT_THREAD_PRIORITY    6
-#define ENCODER_PRINT_THREAD_TIMESLICE   5
+#define ENCODER1_THREAD_STACK_SIZE  2048
+#define ENCODER1_THREAD_PRIORITY    8
+#define ENCODER1_THREAD_TIMESLICE   5
 
-static rt_thread_t encoder_print_thread = RT_NULL;
+#define ENCODER2_THREAD_STACK_SIZE  2048
+#define ENCODER2_THREAD_PRIORITY    8
+#define ENCODER2_THREAD_TIMESLICE   5
+
+static rt_thread_t encoder1_thread = RT_NULL;
+static rt_thread_t encoder2_thread = RT_NULL;
 
 /* 共享的速度值 (转/秒)，供底盘控制线程读取 */
 static volatile float shared_speed1 = 0.0f;
@@ -186,6 +194,10 @@ static volatile float shared_speed2 = 0.0f;
 /* 共享的 delta 值 (保留用于调试) */
 static volatile rt_uint32_t shared_delta1 = 0;
 static volatile rt_uint32_t shared_delta2 = 0;
+
+/* 上次采样时间 (每个编码器独立) */
+static rt_tick_t encoder1_last_tick = 0;
+static rt_tick_t encoder2_last_tick = 0;
 
 /**
  * @brief 获取共享的速度1 (转/秒)
@@ -220,39 +232,66 @@ rt_uint32_t encoder_get_shared_delta2(void)
 }
 
 /**
- * @brief 编码器读取线程入口函数
- *        以 20Hz 频率读取编码器脉冲增量，计算速度（转/秒）
+ * @brief 编码器1读取线程入口函数
+ *        以 20Hz 频率读取编码器1脉冲增量，计算速度（转/秒）
  */
-static void encoder_print_thread_entry(void *parameter)
+static void encoder1_thread_entry(void *parameter)
 {
     (void)parameter;
-    
+
     const rt_uint32_t period_ms = 20;  /* 周期 50ms = 20Hz */
-    rt_tick_t last_tick = rt_tick_get();  /* 上次采样时间 */
-    
+    encoder1_last_tick = rt_tick_get();  /* 上次采样时间 */
+
     while (1)
     {
-        
         /* 读取 delta 值 */
         rt_uint32_t delta1 = encoder1_get_delta();
-        rt_uint32_t delta2 = encoder2_get_delta();
-        
+
+        // rt_kprintf("[Encoder] Delta1=%u\n", delta1);
+
         /* 计算实际采样间隔 (毫秒) */
         rt_tick_t now = rt_tick_get();
-        rt_uint32_t elapsed_ms = (now - last_tick) * 1000 / RT_TICK_PER_SECOND;
-        last_tick = now;
-        
+        rt_uint32_t elapsed_ms = (now - encoder1_last_tick) * 1000 / RT_TICK_PER_SECOND;
+        encoder1_last_tick = now;
+
         /* 计算速度 (转/秒) = delta / PPR / 减速比 / (elapsed_ms / 1000) */
-        if (elapsed_ms > 0)
-        {
-            shared_speed1 = (float)delta1 * 1000.0f / 
-                            (MOTOR1_ENCODER_PPR * MOTOR1_REDUCTION_RATIO * elapsed_ms);
-            shared_speed2 = (float)delta2 * 1000.0f / 
-                            (MOTOR2_ENCODER_PPR * MOTOR2_REDUCTION_RATIO * elapsed_ms);
-        }
-        
+
+        shared_speed1 = (float)delta1 * 1000.0f / (MOTOR1_ENCODER_PPR * MOTOR1_REDUCTION_RATIO * elapsed_ms);
+
         /* 保存 delta 用于调试 */
         shared_delta1 = delta1;
+
+        rt_thread_mdelay(period_ms);
+    }
+}
+
+/**
+ * @brief 编码器2读取线程入口函数
+ *        以 20Hz 频率读取编码器2脉冲增量，计算速度（转/秒）
+ */
+static void encoder2_thread_entry(void *parameter)
+{
+    (void)parameter;
+
+    const rt_uint32_t period_ms = 20;  /* 周期 50ms = 20Hz */
+    encoder2_last_tick = rt_tick_get();  /* 上次采样时间 */
+
+    while (1)
+    {
+        /* 读取 delta 值 */
+        rt_uint32_t delta2 = encoder2_get_delta();
+
+        // rt_kprintf("[Encoder] Delta2=%u\n", delta2);
+
+        /* 计算实际采样间隔 (毫秒) */
+        rt_tick_t now = rt_tick_get();
+        rt_uint32_t elapsed_ms = (now - encoder2_last_tick) * 1000 / RT_TICK_PER_SECOND;
+        encoder2_last_tick = now;
+
+        /* 计算速度 (转/秒) = delta / PPR / 减速比 / (elapsed_ms / 1000) */
+        shared_speed2 = (float)delta2 * 1000.0f / (MOTOR2_ENCODER_PPR * MOTOR2_REDUCTION_RATIO * elapsed_ms);
+
+        /* 保存 delta 用于调试 */
         shared_delta2 = delta2;
 
         rt_thread_mdelay(period_ms);
@@ -260,26 +299,72 @@ static void encoder_print_thread_entry(void *parameter)
 }
 
 /**
- * @brief 启动编码器打印线程
+ * @brief 启动编码器1线程
  * @return RT_EOK 成功, -RT_ERROR 失败
  */
-rt_err_t encoder_print_thread_start(void)
+static rt_err_t encoder1_thread_start(void)
 {
-    encoder_print_thread = rt_thread_create("enc_print",
-                                            encoder_print_thread_entry,
-                                            RT_NULL,
-                                            ENCODER_PRINT_THREAD_STACK_SIZE,
-                                            ENCODER_PRINT_THREAD_PRIORITY,
-                                            ENCODER_PRINT_THREAD_TIMESLICE);
-    if (encoder_print_thread != RT_NULL)
+    encoder1_thread = rt_thread_create("enc1",
+                                       encoder1_thread_entry,
+                                       RT_NULL,
+                                       ENCODER1_THREAD_STACK_SIZE,
+                                       ENCODER1_THREAD_PRIORITY,
+                                       ENCODER1_THREAD_TIMESLICE);
+    if (encoder1_thread != RT_NULL)
     {
-        rt_thread_startup(encoder_print_thread);
-        rt_kprintf("[Encoder] Print thread started (20Hz)\n");
+        rt_thread_startup(encoder1_thread);
+        rt_kprintf("[Encoder1] Thread started (20Hz)\n");
         return RT_EOK;
     }
     else
     {
-        rt_kprintf("[Encoder] Failed to create print thread!\n");
+        rt_kprintf("[Encoder1] Failed to create thread!\n");
+        return -RT_ERROR;
+    }
+}
+
+/**
+ * @brief 启动编码器2线程
+ * @return RT_EOK 成功, -RT_ERROR 失败
+ */
+static rt_err_t encoder2_thread_start(void)
+{
+    encoder2_thread = rt_thread_create("enc2",
+                                       encoder2_thread_entry,
+                                       RT_NULL,
+                                       ENCODER2_THREAD_STACK_SIZE,
+                                       ENCODER2_THREAD_PRIORITY,
+                                       ENCODER2_THREAD_TIMESLICE);
+    if (encoder2_thread != RT_NULL)
+    {
+        rt_thread_startup(encoder2_thread);
+        rt_kprintf("[Encoder2] Thread started (20Hz)\n");
+        return RT_EOK;
+    }
+    else
+    {
+        rt_kprintf("[Encoder2] Failed to create thread!\n");
+        return -RT_ERROR;
+    }
+}
+
+/**
+ * @brief 启动编码器线程（启动两个独立线程）
+ * @return RT_EOK 成功, -RT_ERROR 失败
+ */
+rt_err_t encoder_print_thread_start(void)
+{
+    rt_err_t ret1 = encoder1_thread_start();
+    rt_err_t ret2 = encoder2_thread_start();
+
+    if (ret1 == RT_EOK && ret2 == RT_EOK)
+    {
+        rt_kprintf("[Encoder] Both encoder threads started (20Hz)\n");
+        return RT_EOK;
+    }
+    else
+    {
+        rt_kprintf("[Encoder] Failed to start encoder threads!\n");
         return -RT_ERROR;
     }
 }
@@ -294,15 +379,15 @@ static void enc_info_cmd(int argc, char *argv[])
 {
     (void)argc;
     (void)argv;
-    
+
     rt_uint32_t delta1 = encoder_get_shared_delta1();
     rt_uint32_t delta2 = encoder_get_shared_delta2();
     float speed1 = encoder_get_shared_speed1();
     float speed2 = encoder_get_shared_speed2();
-    
-    rt_kprintf("Encoder1: delta=%u, speed=%d mr/s (%.3f r/s)\n", 
+
+    rt_kprintf("Encoder1: delta=%u, speed=%d mr/s (%.3f r/s)\n",
                delta1, (int)(speed1*1000), speed1);
-    rt_kprintf("Encoder2: delta=%u, speed=%d mr/s (%.3f r/s)\n", 
+    rt_kprintf("Encoder2: delta=%u, speed=%d mr/s (%.3f r/s)\n",
                delta2, (int)(speed2*1000), speed2);
 }
 MSH_CMD_EXPORT_ALIAS(enc_info_cmd, enc_info, Read encoder delta and speed for debug);
