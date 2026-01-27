@@ -227,7 +227,7 @@ static void encoder_print_thread_entry(void *parameter)
 {
     (void)parameter;
     
-    const rt_uint32_t period_ms = 50;  /* 周期 50ms = 20Hz */
+    const rt_uint32_t period_ms = 20;  /* 周期 50ms = 20Hz */
     rt_tick_t last_tick = rt_tick_get();  /* 上次采样时间 */
     
     while (1)

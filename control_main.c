@@ -19,6 +19,7 @@
 #include "common.h"
 #include "motor_control.h"
 #include "motor_model.h"
+#include "pid.h"
 
 /* ================= 目标速度控制 ================= */
 
@@ -32,6 +33,10 @@ static double motor2_target_speed = 0.0;
 
 /* 互斥锁保护目标值 */
 static rt_mutex_t target_mutex = RT_NULL;
+
+/* PID 控制器实例 */
+static PID_Controller pid_motor1;
+static PID_Controller pid_motor2;
 
 /* ================= 底盘控制线程 ================= */
 
@@ -58,7 +63,7 @@ static void chassis_ctrl_thread_entry(void *parameter)
         /* 从编码器模块获取共享的速度值 (转/秒) */
         float actual_speed1 = encoder_get_shared_speed1();
         float actual_speed2 = encoder_get_shared_speed2();
-        
+
         /* 获取 delta 用于调试 */
         rt_uint32_t delta1 = encoder_get_shared_delta1();
         rt_uint32_t delta2 = encoder_get_shared_delta2();
@@ -67,35 +72,32 @@ static void chassis_ctrl_thread_entry(void *parameter)
         rt_mutex_take(target_mutex, RT_WAITING_FOREVER);
         dir1 = motor1_target_dir;
         dir2 = motor2_target_dir;
-        target_speed1 = motor1_target_speed;
+        target_speed1 = motor1_target_speed; // 转/秒
         target_speed2 = motor2_target_speed;
         rt_mutex_release(target_mutex);
 
         /* 使用前馈模型计算 PWM 占空比 */
-        duty1 = motor1_model(dir1, target_speed1);
-        duty2 = motor2_model(dir2, target_speed2);
+        float pwm_ff1 = (float)motor1_model(dir1, target_speed1);
+        float pwm_ff2 = (float)motor2_model(dir2, target_speed2);
 
-        /* TODO: 后续在这里添加 PID 闭环控制 */
-        /* 
-         * double error1 = target_speed1 - actual_speed1;
-         * duty1 += pid_compute(&pid1, error1);
-         */
+        /* 设置 PID 控制器的目标值 */
+        pid_motor1.setpoint = (float)target_speed1;
+        pid_motor2.setpoint = (float)target_speed2;
 
-        /* 限制占空比范围 */
-        if (duty1 < 0.0) duty1 = 0.0;
-        if (duty1 > 1.0) duty1 = 1.0;
-        if (duty2 < 0.0) duty2 = 0.0;
-        if (duty2 > 1.0) duty2 = 1.0;
+        /* 使用 PID_FF_Update 进行前馈+PID闭环控制 */
+        // 转速到 PWM 占空比系数约为 0.25~0.28, 最大占空比 1.0
+        duty1 = PID_FF_Update(&pid_motor1, actual_speed1, pwm_ff1);
+        duty2 = PID_FF_Update(&pid_motor2, actual_speed2, pwm_ff2);
 
         /* 执行电机控制 */
         motor_control(1, dir1, (float)duty1);
         motor_control(2, dir2, (float)duty2);
 
         /* 调试打印 (速度单位: 转/秒, mr/s = 毫转/秒) */
-        rt_kprintf("[Chassis] D1=%u D2=%u S1=%d S2=%d mr/s | T:%d,%d mr/s D:%d%%,%d%%\n", 
-                   delta1, delta2, 
+        rt_kprintf("[Chassis] D1=%u D2=%u S1=%d S2=%d mr/s | T:%d,%d mr/s D:%d%%,%d%%\n",
+                   delta1, delta2,
                    (int)(actual_speed1*1000), (int)(actual_speed2*1000),
-                   (int)(target_speed1*1000), (int)(target_speed2*1000), 
+                   (int)(target_speed1*1000), (int)(target_speed2*1000),
                    (int)(duty1*100), (int)(duty2*100));
 
         /* 休眠 33ms, 实现 30Hz 控制频率 */
@@ -118,7 +120,7 @@ static rt_err_t chassis_ctrl_thread_start(void)
     if (chassis_ctrl_thread != RT_NULL)
     {
         rt_thread_startup(chassis_ctrl_thread);
-        rt_kprintf("[Chassis] Control thread started (20Hz)\n");
+        rt_kprintf("[Chassis] Control thread started (30Hz)\n");
         return RT_EOK;
     }
     else
@@ -150,7 +152,13 @@ int main(void)
     encoders_init();
     encoder_print_thread_start();
 
-    /* 启动底盘控制线程 (前馈控制) */
+    /* 初始化 PID 控制器 (30Hz 控制频率, dt=0.033s) */
+    /* 参数: kp, ki, kd, dt, i_limit, out_limit */
+    PID_Controller_Init(&pid_motor1, 0.05f, 0.15f, 0.01f, 0.033f, 5.0f, 1.0f);
+    PID_Controller_Init(&pid_motor2, 0.05f, 0.15f, 0.01f, 0.033f, 5.0f, 1.0f);
+    rt_kprintf("[PID] Controllers initialized (Kp=0.05, Ki=0.15, Kd=0.01)\n");
+
+    /* 启动底盘控制线程 (前馈+PID闭环控制) */
     chassis_ctrl_thread_start();
 
     rt_kprintf("\nMotor control ready. Use 'cmd_speed' command:\n");
