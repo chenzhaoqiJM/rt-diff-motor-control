@@ -19,7 +19,7 @@
 #include "motor_gpio.h"
 #include "motor_model.h"
 #include "motor_pwm.h"
-#include "odometry.h"
+
 #include "pid.h"
 #include "rpmsg_motor.h"
 
@@ -95,22 +95,6 @@ static void chassis_ctrl_thread_entry(void *parameter) {
     /* 执行电机控制 */
     motor_control(1, dir1, (float)duty1);
     motor_control(2, dir2, (float)duty2);
-
-    /* 更新里程计 */
-    if (odometry_is_configured()) {
-      /* 将电机转速 (r/s) 转换为轮子线速度 (m/s) */
-      float wheel_radius = odometry_get_wheel_radius();
-      /* 轮子线速度 = 电机转速 * 2 * PI * 轮径 */
-      float v_left = actual_speed1 * 2.0f * 3.14159f * wheel_radius;
-      float v_right = actual_speed2 * 2.0f * 3.14159f * wheel_radius;
-      /* 根据方向确定正负 */
-      if (dir1 == 2)
-        v_left = -v_left;
-      if (dir2 == 2)
-        v_right = -v_right;
-      /* 更新里程计 (dt = 0.02s, 50Hz) */
-      odometry_update(v_left, v_right, 0.02f);
-    }
 
     /* 调试打印 (速度单位: 转/秒, mr/s = 毫转/秒) */
     rt_kprintf(
