@@ -8,18 +8,20 @@
  * - motor_gpio.c: GPIO 方向控制
  */
 
-#include <rtthread.h>
 #include <rtdevice.h>
+#include <rtthread.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "motor_pwm.h"
-#include "motor_gpio.h"
-#include "encoder.h"
 #include "common.h"
+#include "encoder.h"
 #include "motor_control.h"
+#include "motor_gpio.h"
 #include "motor_model.h"
+#include "motor_pwm.h"
+#include "odometry.h"
 #include "pid.h"
+#include "rpmsg_motor.h"
 
 /* ================= 目标速度控制 ================= */
 
@@ -40,9 +42,9 @@ static PID_Controller pid_motor2;
 
 /* ================= 底盘控制线程 ================= */
 
-#define CHASSIS_CTRL_THREAD_STACK_SIZE  4096
-#define CHASSIS_CTRL_THREAD_PRIORITY    10
-#define CHASSIS_CTRL_THREAD_TIMESLICE   5
+#define CHASSIS_CTRL_THREAD_STACK_SIZE 4096
+#define CHASSIS_CTRL_THREAD_PRIORITY 10
+#define CHASSIS_CTRL_THREAD_TIMESLICE 5
 
 static rt_thread_t chassis_ctrl_thread = RT_NULL;
 
@@ -50,126 +52,181 @@ static rt_thread_t chassis_ctrl_thread = RT_NULL;
  * @brief 底盘控制线程入口函数
  *        以 30Hz 频率执行前馈控制 (后续可扩展为闭环控制)
  */
-static void chassis_ctrl_thread_entry(void *parameter)
-{
-    (void)parameter;
+static void chassis_ctrl_thread_entry(void *parameter) {
+  (void)parameter;
 
-    int dir1, dir2;
-    double target_speed1, target_speed2;
-    double duty1, duty2;
+  int dir1, dir2;
+  double target_speed1, target_speed2;
+  double duty1, duty2;
 
-    while (1)
-    {
-        /* 从编码器模块获取共享的速度值 (转/秒) */
-        float actual_speed1 = encoder_get_shared_speed1();
-        float actual_speed2 = encoder_get_shared_speed2();
+  while (1) {
+    /* 从编码器模块获取共享的速度值 (转/秒) */
+    float actual_speed1 = encoder_get_shared_speed1();
+    float actual_speed2 = encoder_get_shared_speed2();
 
-        /* 获取 delta 用于调试 */
-        rt_uint32_t delta1 = encoder_get_shared_delta1();
-        rt_uint32_t delta2 = encoder_get_shared_delta2();
+    /* 获取 delta 用于调试 */
+    rt_uint32_t delta1 = encoder_get_shared_delta1();
+    rt_uint32_t delta2 = encoder_get_shared_delta2();
 
-        /* 获取目标值 (加锁保护) */
-        rt_mutex_take(target_mutex, RT_WAITING_FOREVER);
-        dir1 = motor1_target_dir;
-        dir2 = motor2_target_dir;
-        target_speed1 = motor1_target_speed; // 转/秒
-        target_speed2 = motor2_target_speed;
-        rt_mutex_release(target_mutex);
+    /* 获取目标值 (加锁保护) */
+    rt_mutex_take(target_mutex, RT_WAITING_FOREVER);
+    dir1 = motor1_target_dir;
+    dir2 = motor2_target_dir;
+    target_speed1 = motor1_target_speed; // 转/秒
+    target_speed2 = motor2_target_speed;
+    rt_mutex_release(target_mutex);
 
-        /* 使用前馈模型计算 PWM 占空比 */
-        float pwm_ff1 = (float)motor1_model(dir1, target_speed1);
-        float pwm_ff2 = (float)motor2_model(dir2, target_speed2);
+    /* 使用前馈模型计算 PWM 占空比 */
+    float pwm_ff1 = (float)motor1_model(dir1, target_speed1);
+    float pwm_ff2 = (float)motor2_model(dir2, target_speed2);
 
-        /* 设置 PID 控制器的目标值 */
-        pid_motor1.setpoint = (float)target_speed1;
-        pid_motor2.setpoint = (float)target_speed2;
+    /* 设置 PID 控制器的目标值 */
+    pid_motor1.setpoint = (float)target_speed1;
+    pid_motor2.setpoint = (float)target_speed2;
 
-        /* 使用 PID_FF_Update 进行前馈+PID闭环控制 */
-        // 转速到 PWM 占空比系数约为 0.25~0.28, 最大占空比 1.0
-        duty1 = PID_FF_Update(&pid_motor1, actual_speed1, pwm_ff1);
-        duty2 = PID_FF_Update(&pid_motor2, actual_speed2, pwm_ff2);
+    /* 使用 PID_FF_Update 进行前馈+PID闭环控制 */
+    // 转速到 PWM 占空比系数约为 0.25~0.28, 最大占空比 1.0
+    duty1 = PID_FF_Update(&pid_motor1, actual_speed1, pwm_ff1);
+    duty2 = PID_FF_Update(&pid_motor2, actual_speed2, pwm_ff2);
 
-        // duty1 = pwm_ff1;
-        // duty2 = pwm_ff2;
+    // duty1 = pwm_ff1;
+    // duty2 = pwm_ff2;
 
-        /* 执行电机控制 */
-        motor_control(1, dir1, (float)duty1);
-        motor_control(2, dir2, (float)duty2);
+    /* 执行电机控制 */
+    motor_control(1, dir1, (float)duty1);
+    motor_control(2, dir2, (float)duty2);
 
-        /* 调试打印 (速度单位: 转/秒, mr/s = 毫转/秒) */
-        rt_kprintf("[Chassis] D1=%u D2=%u S1=%d S2=%d mr/s | T:%d,%d mr/s D:%d%%,%d%%\n",
-                   delta1, delta2,
-                   (int)(actual_speed1*1000), (int)(actual_speed2*1000),
-                   (int)(target_speed1*1000), (int)(target_speed2*1000),
-                   (int)(duty1*100), (int)(duty2*100));
-
-        /* 休眠 20ms, 实现 50Hz 控制频率 */
-        rt_thread_mdelay(20);
+    /* 更新里程计 */
+    if (odometry_is_configured()) {
+      /* 将电机转速 (r/s) 转换为轮子线速度 (m/s) */
+      float wheel_radius = odometry_get_wheel_radius();
+      /* 轮子线速度 = 电机转速 * 2 * PI * 轮径 */
+      float v_left = actual_speed1 * 2.0f * 3.14159f * wheel_radius;
+      float v_right = actual_speed2 * 2.0f * 3.14159f * wheel_radius;
+      /* 根据方向确定正负 */
+      if (dir1 == 2)
+        v_left = -v_left;
+      if (dir2 == 2)
+        v_right = -v_right;
+      /* 更新里程计 (dt = 0.02s, 50Hz) */
+      odometry_update(v_left, v_right, 0.02f);
     }
+
+    /* 调试打印 (速度单位: 转/秒, mr/s = 毫转/秒) */
+    rt_kprintf(
+        "[Chassis] D1=%u D2=%u S1=%d S2=%d mr/s | T:%d,%d mr/s D:%d%%,%d%%\n",
+        delta1, delta2, (int)(actual_speed1 * 1000),
+        (int)(actual_speed2 * 1000), (int)(target_speed1 * 1000),
+        (int)(target_speed2 * 1000), (int)(duty1 * 100), (int)(duty2 * 100));
+
+    /* 休眠 20ms, 实现 50Hz 控制频率 */
+    rt_thread_mdelay(20);
+  }
 }
 
 /**
  * @brief 启动底盘控制线程
  * @return RT_EOK 成功, -RT_ERROR 失败
  */
-static rt_err_t chassis_ctrl_thread_start(void)
-{
-    chassis_ctrl_thread = rt_thread_create("chassis",
-                                           chassis_ctrl_thread_entry,
-                                           RT_NULL,
-                                           CHASSIS_CTRL_THREAD_STACK_SIZE,
-                                           CHASSIS_CTRL_THREAD_PRIORITY,
-                                           CHASSIS_CTRL_THREAD_TIMESLICE);
-    if (chassis_ctrl_thread != RT_NULL)
-    {
-        rt_thread_startup(chassis_ctrl_thread);
-        rt_kprintf("[Chassis] Control thread started (30Hz)\n");
-        return RT_EOK;
-    }
-    else
-    {
-        rt_kprintf("[Chassis] Failed to create control thread!\n");
-        return -RT_ERROR;
-    }
+static rt_err_t chassis_ctrl_thread_start(void) {
+  chassis_ctrl_thread = rt_thread_create(
+      "chassis", chassis_ctrl_thread_entry, RT_NULL,
+      CHASSIS_CTRL_THREAD_STACK_SIZE, CHASSIS_CTRL_THREAD_PRIORITY,
+      CHASSIS_CTRL_THREAD_TIMESLICE);
+  if (chassis_ctrl_thread != RT_NULL) {
+    rt_thread_startup(chassis_ctrl_thread);
+    rt_kprintf("[Chassis] Control thread started (30Hz)\n");
+    return RT_EOK;
+  } else {
+    rt_kprintf("[Chassis] Failed to create control thread!\n");
+    return -RT_ERROR;
+  }
 }
 
-int main(void)
-{
-    rt_kprintf("==========================================\n");
-    rt_kprintf("  Dual Motor Control System\n");
-    rt_kprintf("==========================================\n\n");
+/* ================= 供 RPMsg 模块调用的接口 ================= */
 
-    /* 创建目标值互斥锁 */
-    target_mutex = rt_mutex_create("tgt_mtx", RT_IPC_FLAG_PRIO);
-    if (target_mutex == RT_NULL)
-    {
-        rt_kprintf("[Error] Failed to create target mutex!\n");
-        return -1;
-    }
+/**
+ * @brief 设置电机目标速度 (供 RPMsg 模块调用)
+ * @param dir1 电机1方向 (0=停止, 1=正转, 2=反转)
+ * @param speed1 电机1目标转速 (转/秒)
+ * @param dir2 电机2方向
+ * @param speed2 电机2目标转速
+ */
+void chassis_set_target(int dir1, double speed1, int dir2, double speed2) {
+  rt_mutex_take(target_mutex, RT_WAITING_FOREVER);
+  motor1_target_dir = dir1;
+  motor1_target_speed = speed1;
+  motor2_target_dir = dir2;
+  motor2_target_speed = speed2;
+  rt_mutex_release(target_mutex);
 
-    /* 初始化电机 GPIO 和 PWM */
-    motors_gpio_init();
-    motors_pwm_init();
+  rt_kprintf(
+      "[Chassis] Target set: M1(dir=%d, speed=%.2f), M2(dir=%d, speed=%.2f)\n",
+      dir1, speed1, dir2, speed2);
+}
 
-    /* 初始化编码器并启动读取线程 */
-    encoders_init();
-    encoder_print_thread_start();
+/**
+ * @brief 获取电机实际状态 (供 RPMsg 模块读取反馈)
+ * @param[out] dir1 电机1实际方向
+ * @param[out] speed1_mrs 电机1实际转速 (毫转/秒)
+ * @param[out] dir2 电机2实际方向
+ * @param[out] speed2_mrs 电机2实际转速 (毫转/秒)
+ */
+void chassis_get_status(int *dir1, int *speed1_mrs, int *dir2,
+                        int *speed2_mrs) {
+  /* 获取实际速度 */
+  float actual_speed1 = encoder_get_shared_speed1();
+  float actual_speed2 = encoder_get_shared_speed2();
 
-    /* 初始化 PID 控制器 (30Hz 控制频率, dt=0.033s) */
-    /* 参数: kp, ki, kd, dt, i_limit, out_limit */
-    PID_Controller_Init(&pid_motor1, 0.05f, 0.15f, 0.01f, 0.033f, 5.0f, 1.0f);
-    PID_Controller_Init(&pid_motor2, 0.05f, 0.15f, 0.01f, 0.033f, 5.0f, 1.0f);
-    rt_kprintf("[PID] Controllers initialized (Kp=0.05, Ki=0.15, Kd=0.01)\n");
+  /* 获取目标方向作为实际方向 (编码器不带方向信息) */
+  rt_mutex_take(target_mutex, RT_WAITING_FOREVER);
+  *dir1 = motor1_target_dir;
+  *dir2 = motor2_target_dir;
+  rt_mutex_release(target_mutex);
 
-    /* 启动底盘控制线程 (前馈+PID闭环控制) */
-    chassis_ctrl_thread_start();
+  /* 转换为毫转/秒 */
+  *speed1_mrs = (int)(actual_speed1 * 1000);
+  *speed2_mrs = (int)(actual_speed2 * 1000);
+}
 
-    rt_kprintf("\nMotor control ready. Use 'cmd_speed' command:\n");
-    rt_kprintf("  cmd_speed 1,2.0;1,2.0   -- Both motors forward at 2.0 r/s\n");
-    rt_kprintf("  cmd_speed 0,0;0,0       -- Stop both motors\n");
-    rt_kprintf("  cmd_motor_stop          -- Emergency stop\n\n");
+int main(void) {
+  rt_kprintf("==========================================\n");
+  rt_kprintf("  Dual Motor Control System\n");
+  rt_kprintf("==========================================\n\n");
 
-    return 0;
+  /* 创建目标值互斥锁 */
+  target_mutex = rt_mutex_create("tgt_mtx", RT_IPC_FLAG_PRIO);
+  if (target_mutex == RT_NULL) {
+    rt_kprintf("[Error] Failed to create target mutex!\n");
+    return -1;
+  }
+
+  /* 初始化电机 GPIO 和 PWM */
+  motors_gpio_init();
+  motors_pwm_init();
+
+  /* 初始化编码器并启动读取线程 */
+  encoders_init();
+  encoder_print_thread_start();
+
+  /* 初始化 PID 控制器 (30Hz 控制频率, dt=0.033s) */
+  /* 参数: kp, ki, kd, dt, i_limit, out_limit */
+  PID_Controller_Init(&pid_motor1, 0.05f, 0.15f, 0.01f, 0.033f, 5.0f, 1.0f);
+  PID_Controller_Init(&pid_motor2, 0.05f, 0.15f, 0.01f, 0.033f, 5.0f, 1.0f);
+  rt_kprintf("[PID] Controllers initialized (Kp=0.05, Ki=0.15, Kd=0.01)\n");
+
+  /* 启动底盘控制线程 (前馈+PID闭环控制) */
+  chassis_ctrl_thread_start();
+
+  /* 启动 RPMsg 电机控制服务 */
+  rpmsg_motor_init();
+
+  rt_kprintf("\nMotor control ready. Use 'cmd_speed' command:\n");
+  rt_kprintf("  cmd_speed 1,2.0;1,2.0   -- Both motors forward at 2.0 r/s\n");
+  rt_kprintf("  cmd_speed 0,0;0,0       -- Stop both motors\n");
+  rt_kprintf("  cmd_motor_stop          -- Emergency stop\n\n");
+
+  return 0;
 }
 
 /* ================= MSH 速度控制命令 ================= */
@@ -182,36 +239,33 @@ int main(void)
  * @param[out] speed 输出速度
  * @return RT_EOK 成功, -RT_ERROR 失败
  */
-static rt_err_t parse_speed_cmd(const char *cmd, int *dir, double *speed)
-{
-    char *comma;
-    char buf[32];
+static rt_err_t parse_speed_cmd(const char *cmd, int *dir, double *speed) {
+  char *comma;
+  char buf[32];
 
-    if (cmd == RT_NULL || *cmd == '\0')
-    {
-        return -RT_ERROR;
-    }
+  if (cmd == RT_NULL || *cmd == '\0') {
+    return -RT_ERROR;
+  }
 
-    /* 复制命令到缓冲区 */
-    strncpy(buf, cmd, sizeof(buf) - 1);
-    buf[sizeof(buf) - 1] = '\0';
+  /* 复制命令到缓冲区 */
+  strncpy(buf, cmd, sizeof(buf) - 1);
+  buf[sizeof(buf) - 1] = '\0';
 
-    /* 查找逗号 */
-    comma = strchr(buf, ',');
-    if (comma == RT_NULL)
-    {
-        rt_kprintf("[Error] Invalid format, expected: direction,speed\n");
-        return -RT_ERROR;
-    }
+  /* 查找逗号 */
+  comma = strchr(buf, ',');
+  if (comma == RT_NULL) {
+    rt_kprintf("[Error] Invalid format, expected: direction,speed\n");
+    return -RT_ERROR;
+  }
 
-    /* 分割字符串 */
-    *comma = '\0';
+  /* 分割字符串 */
+  *comma = '\0';
 
-    /* 解析方向和速度 */
-    *dir = atoi(buf);
-    *speed = atof(comma + 1);
+  /* 解析方向和速度 */
+  *dir = atoi(buf);
+  *speed = atof(comma + 1);
 
-    return RT_EOK;
+  return RT_EOK;
 }
 
 /**
@@ -224,84 +278,79 @@ static rt_err_t parse_speed_cmd(const char *cmd, int *dir, double *speed)
  *   方向: 0=停止, 1=正转, 2=反转
  *   转速: 单位为 转/秒 (r/s)
  */
-static int cmd_speed(int argc, char *argv[])
-{
-    char *cmd;
-    char *semicolon;
-    char buf[64];
-    int dir1 = 0, dir2 = 0;
-    double speed1 = 0.0, speed2 = 0.0;
+static int cmd_speed(int argc, char *argv[]) {
+  char *cmd;
+  char *semicolon;
+  char buf[64];
+  int dir1 = 0, dir2 = 0;
+  double speed1 = 0.0, speed2 = 0.0;
 
-    if (argc < 2)
-    {
-        rt_kprintf("Usage: cmd_speed <dir1,speed1>[;<dir2,speed2>]\n");
-        rt_kprintf("  dir: 0=stop, 1=forward, 2=backward\n");
-        rt_kprintf("  speed: rotation speed in r/s (revolutions per second)\n");
-        rt_kprintf("Example:\n");
-        rt_kprintf("  cmd_speed 1,2.0;1,2.0   -- Both motors forward at 2.0 r/s\n");
-        rt_kprintf("  cmd_speed 2,1.5;0,0     -- Motor1 backward 1.5 r/s, Motor2 stop\n");
-        rt_kprintf("  cmd_speed 0,0;0,0       -- Stop both motors\n");
-        return -1;
-    }
+  if (argc < 2) {
+    rt_kprintf("Usage: cmd_speed <dir1,speed1>[;<dir2,speed2>]\n");
+    rt_kprintf("  dir: 0=stop, 1=forward, 2=backward\n");
+    rt_kprintf("  speed: rotation speed in r/s (revolutions per second)\n");
+    rt_kprintf("Example:\n");
+    rt_kprintf("  cmd_speed 1,2.0;1,2.0   -- Both motors forward at 2.0 r/s\n");
+    rt_kprintf(
+        "  cmd_speed 2,1.5;0,0     -- Motor1 backward 1.5 r/s, Motor2 stop\n");
+    rt_kprintf("  cmd_speed 0,0;0,0       -- Stop both motors\n");
+    return -1;
+  }
 
-    cmd = argv[1];
+  cmd = argv[1];
 
-    /* 复制命令到缓冲区 */
-    strncpy(buf, cmd, sizeof(buf) - 1);
-    buf[sizeof(buf) - 1] = '\0';
+  /* 复制命令到缓冲区 */
+  strncpy(buf, cmd, sizeof(buf) - 1);
+  buf[sizeof(buf) - 1] = '\0';
 
-    /* 查找分号，分隔两个电机的指令 */
-    semicolon = strchr(buf, ';');
-    if (semicolon != RT_NULL)
-    {
-        /* 分割字符串 */
-        *semicolon = '\0';
+  /* 查找分号，分隔两个电机的指令 */
+  semicolon = strchr(buf, ';');
+  if (semicolon != RT_NULL) {
+    /* 分割字符串 */
+    *semicolon = '\0';
 
-        /* 解析电机1和电机2指令 */
-        if (parse_speed_cmd(buf, &dir1, &speed1) != RT_EOK)
-            return -1;
-        if (parse_speed_cmd(semicolon + 1, &dir2, &speed2) != RT_EOK)
-            return -1;
-    }
-    else
-    {
-        /* 只有一个电机的指令，默认控制电机1 */
-        if (parse_speed_cmd(buf, &dir1, &speed1) != RT_EOK)
-            return -1;
-    }
+    /* 解析电机1和电机2指令 */
+    if (parse_speed_cmd(buf, &dir1, &speed1) != RT_EOK)
+      return -1;
+    if (parse_speed_cmd(semicolon + 1, &dir2, &speed2) != RT_EOK)
+      return -1;
+  } else {
+    /* 只有一个电机的指令，默认控制电机1 */
+    if (parse_speed_cmd(buf, &dir1, &speed1) != RT_EOK)
+      return -1;
+  }
 
-    /* 设置目标值 (加锁保护) */
-    rt_mutex_take(target_mutex, RT_WAITING_FOREVER);
-    motor1_target_dir = dir1;
-    motor2_target_dir = dir2;
-    motor1_target_speed = speed1;
-    motor2_target_speed = speed2;
-    rt_mutex_release(target_mutex);
+  /* 设置目标值 (加锁保护) */
+  rt_mutex_take(target_mutex, RT_WAITING_FOREVER);
+  motor1_target_dir = dir1;
+  motor2_target_dir = dir2;
+  motor1_target_speed = speed1;
+  motor2_target_speed = speed2;
+  rt_mutex_release(target_mutex);
 
-    rt_kprintf("[cmd_speed] Motor1: dir=%d, speed=%.2f r/s\n", dir1, speed1);
-    rt_kprintf("[cmd_speed] Motor2: dir=%d, speed=%.2f r/s\n", dir2, speed2);
+  rt_kprintf("[cmd_speed] Motor1: dir=%d, speed=%.2f r/s\n", dir1, speed1);
+  rt_kprintf("[cmd_speed] Motor2: dir=%d, speed=%.2f r/s\n", dir2, speed2);
 
-    return 0;
+  return 0;
 }
-MSH_CMD_EXPORT(cmd_speed, Set motor target speed in r/s);
+MSH_CMD_EXPORT(cmd_speed, Set motor target speed in r / s);
 
 /**
  * @brief MSH命令: 紧急停止所有电机
  */
-static int cmd_chassis_stop(int argc, char *argv[])
-{
-    (void)argc;
-    (void)argv;
+static int cmd_chassis_stop(int argc, char *argv[]) {
+  (void)argc;
+  (void)argv;
 
-    /* 设置目标值为0 */
-    rt_mutex_take(target_mutex, RT_WAITING_FOREVER);
-    motor1_target_dir = 0;
-    motor2_target_dir = 0;
-    motor1_target_speed = 0.0;
-    motor2_target_speed = 0.0;
-    rt_mutex_release(target_mutex);
+  /* 设置目标值为0 */
+  rt_mutex_take(target_mutex, RT_WAITING_FOREVER);
+  motor1_target_dir = 0;
+  motor2_target_dir = 0;
+  motor1_target_speed = 0.0;
+  motor2_target_speed = 0.0;
+  rt_mutex_release(target_mutex);
 
-    rt_kprintf("[cmd_chassis_stop] All motors stopped.\n");
-    return 0;
+  rt_kprintf("[cmd_chassis_stop] All motors stopped.\n");
+  return 0;
 }
 MSH_CMD_EXPORT(cmd_chassis_stop, Emergency stop all motors);
