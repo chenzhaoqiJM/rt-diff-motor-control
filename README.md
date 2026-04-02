@@ -14,6 +14,49 @@
 - ✅ **RPMsg 大小核异步通信**
 - ✅ MSH 命令行控制接口
 
+
+
+## 引脚映射
+
+![](./images/image.png)
+
+
+
+## 调试串口连接
+
+![](./images/image1.png)
+
+
+
+## 硬件配置及接线
+
+![](./images/image3.png)
+
+### 电机（左） 1
+
+| 功能        | 引脚                         | 说明      |
+| ----------- | ---------------------------- | --------- |
+| 方向控制 0  | GPIO 125 -> AIN2             | H 桥控制  |
+| 方向控制 1  | GPIO 127 -> AIN1             | H 桥控制  |
+| PWM         | rpwm9 (GPIO 112) -> PWMA     | 10KHz PWM |
+| 编码器 A 相 | GPIO 113（R.GPIO[30]）-> E1A | 中断输入  |
+
+### 电机 （右）2
+
+| 功能        | 引脚                         | 说明      |
+| ----------- | ---------------------------- | --------- |
+| 方向控制 0  | GPIO 71 -> BIN2              | H 桥控制  |
+| 方向控制 1  | GPIO 61 -> BIN1              | H 桥控制  |
+| PWM         | rpwm8 (GPIO 111) -> PWMB     | 10KHz PWM |
+| 编码器 A 相 | GPIO 118（R.GPIO[35]）-> E1B | 中断输入  |
+
+### 编码器参数
+
+- PPR (每转脉冲数): 11
+- 减速比: 30
+
+
+
 ## 项目结构
 
 ```
@@ -71,27 +114,7 @@ rt-diff-motor-control/
 | 大核→小核 | `dir1,speed1;dir2,speed2` | `1,2.0;1,2.0` |
 | 小核→大核 | `dir1,speed1_mrs;dir2,speed2_mrs` | `1,2000;1,2000` |
 
-## 硬件配置
 
-### 电机 1
-| 功能 | 引脚 | 说明 |
-|------|------|------|
-| 方向控制 0 | GPIO 125 | H 桥控制 |
-| 方向控制 1 | GPIO 127 | H 桥控制 |
-| PWM | rpwm9 (GPIO 112) | 10KHz PWM |
-| 编码器 A 相 | GPIO 158 | 中断输入 |
-
-### 电机 2
-| 功能 | 引脚 | 说明 |
-|------|------|------|
-| 方向控制 0 | GPIO 71 | H 桥控制 |
-| 方向控制 1 | GPIO 61 | H 桥控制 |
-| PWM | rpwm8 (GPIO 111) | 10KHz PWM |
-| 编码器 A 相 | GPIO 163 | 中断输入 |
-
-### 编码器参数
-- PPR (每转脉冲数): 11
-- 减速比: 56
 
 ## Linux 端使用
 
@@ -166,8 +189,21 @@ enc_info                  # 读取编码器 delta 和速度
 
 项目源文件在 `bsp/spacemit/applications/SConscript` 中注册：
 
+替换为如下内容
+
 ```python
-src = [
+Import('RTT_ROOT')
+Import('rtconfig')
+from building import *
+import os
+
+cwd     = GetCurrentDir()
+
+# BSP spacemit 目录
+bsp_spacemit_dir = os.path.dirname(cwd)
+
+# 使用 rt-diff-motor-control 中的源文件
+src     = [
     'rt-diff-motor-control/control_main.c',
     'rt-diff-motor-control/src/motor_pwm.c',
     'rt-diff-motor-control/src/motor_gpio.c',
@@ -178,9 +214,47 @@ src = [
     'rt-diff-motor-control/src/motor_model.c',
     'rt-diff-motor-control/src/rpmsg_test.c',
     'rt-diff-motor-control/src/rpmsg_motor.c',
-    'rt-diff-motor-control/src/odometry.c',
 ]
+CPPPATH = [
+    GetCurrentDir(),
+    GetCurrentDir() + '/rt-diff-motor-control/include',
+]
+
+CCFLAGS = ' -c -ffunction-sections'
+
+group   = DefineGroup('Applications', src, depend = [''], CPPPATH = CPPPATH, CCFLAGS=CCFLAGS)
+
+Return('group')
 ```
+
+```
+cd esos
+./bsp/spacemit/applications/rt-diff-motor-control/scripts/compile_esos.sh
+```
+
+
+
+
+
+## 更新小核
+
+```
+scp update_esos.sh remote_board@ip:~/
+```
+
+在远程主机使用
+
+```
+bash update_esos.sh host_pc@pc_ip:/path/to/esos_output
+```
+
+`/path/to/esos_output`里面应该有：
+
+```
+esos.itb  rt24_os0_rcpu.elf  rt24_os1_rcpu.elf
+```
+
+
 
 ## 前馈模型
 

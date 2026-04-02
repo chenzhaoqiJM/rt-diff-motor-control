@@ -1,0 +1,49 @@
+Import('RTT_ROOT')
+Import('rtconfig')
+from building import *
+import os
+
+cwd     = GetCurrentDir()
+
+# BSP spacemit 目录
+bsp_spacemit_dir = os.path.dirname(cwd)
+
+# 使用 rt-diff-motor-control 中的源文件
+src     = [
+    'rt-diff-motor-control/control_main.c',
+    'rt-diff-motor-control/src/motor_pwm.c',
+    'rt-diff-motor-control/src/motor_gpio.c',
+    'rt-diff-motor-control/src/encoder.c',
+    'rt-diff-motor-control/src/motor_control.c',
+    'rt-diff-motor-control/src/led_test.c',
+    'rt-diff-motor-control/src/pid.c',
+    'rt-diff-motor-control/src/motor_model.c',
+    'rt-diff-motor-control/src/rpmsg_test.c',
+    'rt-diff-motor-control/src/rpmsg_motor.c',
+]
+CPPPATH = [
+    GetCurrentDir(),
+    GetCurrentDir() + '/rt-diff-motor-control/include',
+]
+
+CCFLAGS = ' -c -ffunction-sections'
+
+group   = DefineGroup('Applications', src, depend = [''], CPPPATH = CPPPATH, CCFLAGS=CCFLAGS)
+
+Return('group')
+
+
+
+# Import('RTT_ROOT')
+# Import('rtconfig')
+# from building import *
+
+# cwd     = GetCurrentDir()
+# src     = Glob('*.c')
+# CPPPATH = GetCurrentDir()
+
+# CCFLAGS = ' -c -ffunction-sections'
+
+# group   = DefineGroup('Applications', src, depend = [''], CPPPATH = CPPPATH, CCFLAGS=CCFLAGS)
+
+# Return('group')
