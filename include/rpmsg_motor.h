@@ -5,6 +5,7 @@
  *
  * 协议:
  * - 速度指令: "dir1,speed1;dir2,speed2"
+ * - 参数指令: "CFG,ratio,ff,kp,ki,kd[,feedback_enable]"
  * - 状态反馈: "dir1,speed1_mrs;dir2,speed2_mrs"
  */
 

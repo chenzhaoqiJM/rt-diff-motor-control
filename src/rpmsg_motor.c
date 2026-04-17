@@ -104,15 +104,24 @@ static rt_err_t parse_speed_command(const char *cmd, int *dir1, double *speed1,
 
 /**
  * @brief 解析 CFG 指令
- *        格式: "CFG,ratio,ff,kp,ki,kd"
+ *        格式: "CFG,ratio,ff,kp,ki,kd[,feedback_enable]"
  */
 static rt_err_t parse_cfg_command(const char *cmd, double *ratio, double *ff,
-                                  double *kp, double *ki, double *kd) {
+                                  double *kp, double *ki, double *kd,
+                                  int *feedback_enable) {
+  int matched = 0;
+
   if (cmd == RT_NULL) {
     return -RT_ERROR;
   }
 
-  if (sscanf(cmd, "CFG,%lf,%lf,%lf,%lf,%lf", ratio, ff, kp, ki, kd) == 5) {
+  if (feedback_enable != RT_NULL) {
+    *feedback_enable = -1;
+  }
+
+  matched = sscanf(cmd, "CFG,%lf,%lf,%lf,%lf,%lf,%d", ratio, ff, kp, ki, kd,
+                   feedback_enable);
+  if (matched == 6 || matched == 5) {
     return RT_EOK;
   }
 
@@ -128,6 +137,7 @@ static int rpmsg_motor_endpoint_cb(struct rpmsg_endpoint *ept, void *data,
                                    size_t len, uint32_t src, void *priv) {
   char *recv_str = (char *)data;
   int dir1 = 0, dir2 = 0;
+  int feedback_cfg = -1;
   double speed1 = 0.0, speed2 = 0.0;
   double ratio = 0.0, ff = 0.0, kp = 0.0, ki = 0.0, kd = 0.0;
 
@@ -137,11 +147,17 @@ static int rpmsg_motor_endpoint_cb(struct rpmsg_endpoint *ept, void *data,
 
   rt_kprintf("[rpmsg_motor] Recv: \"%s\" (src=%d)\n", recv_str, src);
 
-  if (parse_cfg_command(recv_str, &ratio, &ff, &kp, &ki, &kd) == RT_EOK) {
-    rt_kprintf(
-        "[rpmsg_motor] CFG ratio=%d ff=%d kp=%d ki=%d kd=%d (x1000)\n",
-        (int)(ratio * 1000), (int)(ff * 1000), (int)(kp * 1000),
-        (int)(ki * 1000), (int)(kd * 1000));
+  if (parse_cfg_command(recv_str, &ratio, &ff, &kp, &ki, &kd,
+                        &feedback_cfg) == RT_EOK) {
+    if (feedback_cfg == 0) {
+      feedback_enabled = RT_FALSE;
+    } else if (feedback_cfg == 1) {
+      feedback_enabled = RT_TRUE;
+    }
+
+    rt_kprintf("[rpmsg_motor] CFG ratio=%d ff=%d kp=%d ki=%d kd=%d fb=%d (x1000/flag)\n",
+               (int)(ratio * 1000), (int)(ff * 1000), (int)(kp * 1000),
+               (int)(ki * 1000), (int)(kd * 1000), feedback_enabled);
     chassis_set_cfg(ratio, ff, kp, ki, kd);
     return 0;
   }
