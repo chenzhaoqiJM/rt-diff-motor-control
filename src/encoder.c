@@ -191,6 +191,9 @@ static rt_thread_t encoder2_thread = RT_NULL;
 static volatile float shared_speed1 = 0.0f;
 static volatile float shared_speed2 = 0.0f;
 
+/* 动态减速比配置 */
+static volatile float encoder_reduction_ratio = MOTOR_REDUCTION_RATIO;
+
 /* 共享的 delta 值 (保留用于调试) */
 static volatile rt_uint32_t shared_delta1 = 0;
 static volatile rt_uint32_t shared_delta2 = 0;
@@ -213,6 +216,20 @@ float encoder_get_shared_speed1(void)
 float encoder_get_shared_speed2(void)
 {
     return shared_speed2;
+}
+
+/**
+ * @brief 设置编码器测速使用的减速比
+ */
+void encoder_set_reduction_ratio(float ratio)
+{
+    if (ratio > 0.0f)
+    {
+        encoder_reduction_ratio = ratio;
+    }
+
+    rt_kprintf("[Encoder] Reduction ratio updated: %d (x1000)\n",
+               (int)(encoder_reduction_ratio * 1000));
 }
 
 /**
@@ -256,7 +273,13 @@ static void encoder1_thread_entry(void *parameter)
 
         /* 计算速度 (转/秒) = delta / PPR / 减速比 / (elapsed_ms / 1000) */
 
-        shared_speed1 = (float)delta1 * 1000.0f / (MOTOR1_ENCODER_PPR * MOTOR1_REDUCTION_RATIO * elapsed_ms);
+        if (elapsed_ms == 0)
+        {
+            elapsed_ms = 1;
+        }
+
+        shared_speed1 = (float)delta1 * 1000.0f /
+                        (MOTOR_ENCODER_PPR * encoder_reduction_ratio * elapsed_ms);
 
         /* 保存 delta 用于调试 */
         shared_delta1 = delta1;
@@ -289,7 +312,13 @@ static void encoder2_thread_entry(void *parameter)
         encoder2_last_tick = now;
 
         /* 计算速度 (转/秒) = delta / PPR / 减速比 / (elapsed_ms / 1000) */
-        shared_speed2 = (float)delta2 * 1000.0f / (MOTOR2_ENCODER_PPR * MOTOR2_REDUCTION_RATIO * elapsed_ms);
+        if (elapsed_ms == 0)
+        {
+            elapsed_ms = 1;
+        }
+
+        shared_speed2 = (float)delta2 * 1000.0f /
+                        (MOTOR_ENCODER_PPR * encoder_reduction_ratio * elapsed_ms);
 
         /* 保存 delta 用于调试 */
         shared_delta2 = delta2;
@@ -385,9 +414,9 @@ static void enc_info_cmd(int argc, char *argv[])
     float speed1 = encoder_get_shared_speed1();
     float speed2 = encoder_get_shared_speed2();
 
-    rt_kprintf("Encoder1: delta=%u, speed=%d mr/s (%.3f r/s)\n",
-               delta1, (int)(speed1*1000), speed1);
-    rt_kprintf("Encoder2: delta=%u, speed=%d mr/s (%.3f r/s)\n",
-               delta2, (int)(speed2*1000), speed2);
+    rt_kprintf("Encoder1: delta=%u, speed=%d mr/s\n",
+               delta1, (int)(speed1 * 1000));
+    rt_kprintf("Encoder2: delta=%u, speed=%d mr/s\n",
+               delta2, (int)(speed2 * 1000));
 }
 MSH_CMD_EXPORT_ALIAS(enc_info_cmd, enc_info, Read encoder delta and speed for debug);

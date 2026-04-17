@@ -10,6 +10,7 @@
 
 #include <rtdevice.h>
 #include <rtthread.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -17,7 +18,6 @@
 #include "encoder.h"
 #include "motor_control.h"
 #include "motor_gpio.h"
-#include "motor_model.h"
 #include "motor_pwm.h"
 
 #include "pid.h"
@@ -32,6 +32,12 @@ static int motor2_target_dir = 0;
 /* 电机目标转速: 单位 转/秒 (r/s) */
 static double motor1_target_speed = 0.0;
 static double motor2_target_speed = 0.0;
+
+/* 前馈控制系数 (转速到占空比) */
+static double ff_factor = 0.3;
+
+/* 编码器减速比 */
+static double reduction_ratio = MOTOR_REDUCTION_RATIO;
 
 /* 互斥锁保护目标值 */
 static rt_mutex_t target_mutex = RT_NULL;
@@ -77,8 +83,8 @@ static void chassis_ctrl_thread_entry(void *parameter) {
     rt_mutex_release(target_mutex);
 
     /* 使用前馈模型计算 PWM 占空比 */
-    float pwm_ff1 = (float)motor1_model(dir1, target_speed1);
-    float pwm_ff2 = (float)motor2_model(dir2, target_speed2);
+    float pwm_ff1 = ff_factor * target_speed1; // 简单线性前馈
+    float pwm_ff2 = ff_factor * target_speed2;
 
     /* 设置 PID 控制器的目标值 */
     pid_motor1.setpoint = (float)target_speed1;
@@ -88,9 +94,6 @@ static void chassis_ctrl_thread_entry(void *parameter) {
     // 转速到 PWM 占空比系数约为 0.25~0.28, 最大占空比 1.0
     duty1 = PID_FF_Update(&pid_motor1, actual_speed1, pwm_ff1);
     duty2 = PID_FF_Update(&pid_motor2, actual_speed2, pwm_ff2);
-
-    // duty1 = pwm_ff1;
-    // duty2 = pwm_ff2;
 
     /* 执行电机控制 */
     motor_control(1, dir1, (float)duty1);
@@ -145,8 +148,8 @@ void chassis_set_target(int dir1, double speed1, int dir2, double speed2) {
   rt_mutex_release(target_mutex);
 
   rt_kprintf(
-      "[Chassis] Target set: M1(dir=%d, speed=%.2f), M2(dir=%d, speed=%.2f)\n",
-      dir1, speed1, dir2, speed2);
+      "[Chassis] Target set: M1(dir=%d, speed=%d mr/s), M2(dir=%d, speed=%d mr/s)\n",
+      dir1, (int)(speed1 * 1000), dir2, (int)(speed2 * 1000));
 }
 
 /**
@@ -173,6 +176,26 @@ void chassis_get_status(int *dir1, int *speed1_mrs, int *dir2,
   *speed2_mrs = (int)(actual_speed2 * 1000);
 }
 
+/**
+ * @brief 设置底盘控制参数 (供 RPMsg 模块调用)
+ */
+void chassis_set_cfg(double ratio, double ff, double kp, double ki, double kd) {
+  rt_mutex_take(target_mutex, RT_WAITING_FOREVER);
+  reduction_ratio = ratio;
+  ff_factor = ff;
+
+  PID_Controller_Init(&pid_motor1, (float)kp, (float)ki, (float)kd, 0.033f, 10.0f, 1.0f);
+  PID_Controller_Init(&pid_motor2, (float)kp, (float)ki, (float)kd, 0.033f, 10.0f, 1.0f);
+  rt_mutex_release(target_mutex);
+
+  encoder_set_reduction_ratio((float)ratio);
+
+  rt_kprintf(
+      "[Chassis] CFG updated: ratio=%d ff=%d kp=%d ki=%d kd=%d (x1000)\n",
+      (int)(reduction_ratio * 1000), (int)(ff_factor * 1000),
+      (int)(kp * 1000), (int)(ki * 1000), (int)(kd * 1000));
+}
+
 int main(void) {
   rt_kprintf("==========================================\n");
   rt_kprintf("  Dual Motor Control System\n");
@@ -191,13 +214,14 @@ int main(void) {
 
   /* 初始化编码器并启动读取线程 */
   encoders_init();
+  encoder_set_reduction_ratio((float)reduction_ratio);
   encoder_print_thread_start();
 
   /* 初始化 PID 控制器 (30Hz 控制频率, dt=0.033s) */
   /* 参数: kp, ki, kd, dt, i_limit, out_limit */
-  PID_Controller_Init(&pid_motor1, 0.05f, 0.15f, 0.01f, 0.033f, 5.0f, 1.0f);
-  PID_Controller_Init(&pid_motor2, 0.05f, 0.15f, 0.01f, 0.033f, 5.0f, 1.0f);
-  rt_kprintf("[PID] Controllers initialized (Kp=0.05, Ki=0.15, Kd=0.01)\n");
+  PID_Controller_Init(&pid_motor1, 0.05f, 0.2f, 0.01f, 0.033f, 10.0f, 1.0f);
+  PID_Controller_Init(&pid_motor2, 0.05f, 0.2f, 0.01f, 0.033f, 10.0f, 1.0f);
+  rt_kprintf("[PID] Controllers initialized (Kp=50 Ki=200 Kd=10, x1000)\n");
 
   /* 启动底盘控制线程 (前馈+PID闭环控制) */
   chassis_ctrl_thread_start();
@@ -312,8 +336,10 @@ static int cmd_speed(int argc, char *argv[]) {
   motor2_target_speed = speed2;
   rt_mutex_release(target_mutex);
 
-  rt_kprintf("[cmd_speed] Motor1: dir=%d, speed=%.2f r/s\n", dir1, speed1);
-  rt_kprintf("[cmd_speed] Motor2: dir=%d, speed=%.2f r/s\n", dir2, speed2);
+  rt_kprintf("[cmd_speed] Motor1: dir=%d, speed=%d mr/s\n", dir1,
+             (int)(speed1 * 1000));
+  rt_kprintf("[cmd_speed] Motor2: dir=%d, speed=%d mr/s\n", dir2,
+             (int)(speed2 * 1000));
 
   return 0;
 }

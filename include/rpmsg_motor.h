@@ -52,6 +52,17 @@ extern void chassis_set_target(int dir1, double speed1, int dir2,
 extern void chassis_get_status(int *dir1, int *speed1_mrs, int *dir2,
                                int *speed2_mrs);
 
+/**
+ * @brief 更新底盘控制参数
+ * @param reduction_ratio 减速比
+ * @param ff 前馈系数
+ * @param kp PID 比例系数
+ * @param ki PID 积分系数
+ * @param kd PID 微分系数
+ */
+extern void chassis_set_cfg(double reduction_ratio, double ff, double kp,
+                            double ki, double kd);
+
 #ifdef __cplusplus
 }
 #endif

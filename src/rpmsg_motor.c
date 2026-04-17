@@ -16,7 +16,7 @@
 #include <rtthread.h>
 #include <stdlib.h>
 #include <string.h>
-
+#include <stdio.h>
 #include "rpmsg_motor.h"
 
 /* ================= 配置参数 ================= */
@@ -102,6 +102,23 @@ static rt_err_t parse_speed_command(const char *cmd, int *dir1, double *speed1,
   return RT_EOK;
 }
 
+/**
+ * @brief 解析 CFG 指令
+ *        格式: "CFG,ratio,ff,kp,ki,kd"
+ */
+static rt_err_t parse_cfg_command(const char *cmd, double *ratio, double *ff,
+                                  double *kp, double *ki, double *kd) {
+  if (cmd == RT_NULL) {
+    return -RT_ERROR;
+  }
+
+  if (sscanf(cmd, "CFG,%lf,%lf,%lf,%lf,%lf", ratio, ff, kp, ki, kd) == 5) {
+    return RT_EOK;
+  }
+
+  return -RT_ERROR;
+}
+
 /* ================= RPMsg 回调函数 ================= */
 
 /**
@@ -112,6 +129,7 @@ static int rpmsg_motor_endpoint_cb(struct rpmsg_endpoint *ept, void *data,
   char *recv_str = (char *)data;
   int dir1 = 0, dir2 = 0;
   double speed1 = 0.0, speed2 = 0.0;
+  double ratio = 0.0, ff = 0.0, kp = 0.0, ki = 0.0, kd = 0.0;
 
   (void)ept;
   (void)priv;
@@ -119,10 +137,20 @@ static int rpmsg_motor_endpoint_cb(struct rpmsg_endpoint *ept, void *data,
 
   rt_kprintf("[rpmsg_motor] Recv: \"%s\" (src=%d)\n", recv_str, src);
 
+  if (parse_cfg_command(recv_str, &ratio, &ff, &kp, &ki, &kd) == RT_EOK) {
+    rt_kprintf(
+        "[rpmsg_motor] CFG ratio=%d ff=%d kp=%d ki=%d kd=%d (x1000)\n",
+        (int)(ratio * 1000), (int)(ff * 1000), (int)(kp * 1000),
+        (int)(ki * 1000), (int)(kd * 1000));
+    chassis_set_cfg(ratio, ff, kp, ki, kd);
+    return 0;
+  }
+
   /* 解析速度指令 */
   if (parse_speed_command(recv_str, &dir1, &speed1, &dir2, &speed2) == RT_EOK) {
-    rt_kprintf("[rpmsg_motor] M1(dir=%d, speed=%.2f), M2(dir=%d, speed=%.2f)\n",
-               dir1, speed1, dir2, speed2);
+    rt_kprintf(
+        "[rpmsg_motor] M1(dir=%d, speed=%d mr/s), M2(dir=%d, speed=%d mr/s)\n",
+        dir1, (int)(speed1 * 1000), dir2, (int)(speed2 * 1000));
     chassis_set_target(dir1, speed1, dir2, speed2);
   } else {
     rt_kprintf("[rpmsg_motor] Unknown command format!\n");
@@ -301,4 +329,4 @@ static int cmd_rpmsg_feedback(int argc, char *argv[]) {
 }
 
 #include <finsh.h>
-MSH_CMD_EXPORT(cmd_rpmsg_feedback, Enable / disable motor status feedback);
+MSH_CMD_EXPORT(cmd_rpmsg_feedback, rpmsg_feedback_control);

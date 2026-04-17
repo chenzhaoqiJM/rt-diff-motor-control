@@ -1,4 +1,4 @@
-#ifndef MYCOMMON_H 
+#ifndef MYCOMMON_H
 #define MYCOMMON_H
 
 // GPIO8 和 GPIO9 是 boot 引脚，最好不要用来控制电机
@@ -18,6 +18,9 @@
 #define PWM_CHANNEL     1           /* PWM通道号 */
 #define PWM_PERIOD      100000      /* 周期: 100us = 100000ns (10KHz) */
 
+#define MOTOR_ENCODER_PPR     13
+#define MOTOR_REDUCTION_RATIO 56 // 减速比
+
 // Motor1 -------------------------------------------------------------------------------------------------
 
 /* ================= GPIO 输出引脚定义, 控制电机正反转的 ================= */
@@ -32,9 +35,6 @@
 /* ================= 编码器引脚参数设置 ================= */
 #define ENCODER_GPIO_MOTOR1_A   158
 
-#define MOTOR1_ENCODER_PPR     11
-#define MOTOR1_REDUCTION_RATIO 56 // 减速比
-
 // Motor2 --------------------------------------------------------------------------------------------------
 
 /* ================= GPIO 输出引脚定义, 控制电机正反转的 ================= */
@@ -47,10 +47,6 @@
 
 /* ================= 编码器引脚参数设置 ================= */
 #define ENCODER_GPIO_MOTOR2_A   163
-
-#define MOTOR2_ENCODER_PPR     11
-
-#define MOTOR2_REDUCTION_RATIO 56 // 减速比
 
 
 #endif  // MYCOMMON_H

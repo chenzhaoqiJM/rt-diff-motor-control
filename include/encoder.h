@@ -36,6 +36,9 @@ rt_err_t encoder_print_thread_start(void);
 float encoder_get_shared_speed1(void);
 float encoder_get_shared_speed2(void);
 
+/* 动态设置编码器测速减速比 */
+void encoder_set_reduction_ratio(float ratio);
+
 /* 获取共享的 delta 值 (用于调试) */
 rt_uint32_t encoder_get_shared_delta1(void);
 rt_uint32_t encoder_get_shared_delta2(void);
