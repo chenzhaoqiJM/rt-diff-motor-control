@@ -100,11 +100,11 @@ static void chassis_ctrl_thread_entry(void *parameter) {
     motor_control(2, dir2, (float)duty2);
 
     /* 调试打印 (速度单位: 转/秒, mr/s = 毫转/秒) */
-    rt_kprintf(
-        "[Chassis] D1=%u D2=%u S1=%d S2=%d mr/s | T:%d,%d mr/s D:%d%%,%d%%\n",
-        delta1, delta2, (int)(actual_speed1 * 1000),
-        (int)(actual_speed2 * 1000), (int)(target_speed1 * 1000),
-        (int)(target_speed2 * 1000), (int)(duty1 * 100), (int)(duty2 * 100));
+    // rt_kprintf(
+    //     "[Chassis] D1=%u D2=%u S1=%d S2=%d mr/s | T:%d,%d mr/s D:%d%%,%d%%\n",
+    //     delta1, delta2, (int)(actual_speed1 * 1000),
+    //     (int)(actual_speed2 * 1000), (int)(target_speed1 * 1000),
+    //     (int)(target_speed2 * 1000), (int)(duty1 * 100), (int)(duty2 * 100));
 
     /* 休眠 20ms, 实现 50Hz 控制频率 */
     rt_thread_mdelay(20);

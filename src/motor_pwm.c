@@ -6,6 +6,7 @@
 
 #include <rtthread.h>
 #include <rtdevice.h>
+#include <drivers/rt_drv_pwm.h>
 #include "common.h"
 #include "motor_pwm.h"
 

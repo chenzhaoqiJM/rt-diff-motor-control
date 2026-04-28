@@ -221,11 +221,11 @@ static void feedback_thread_entry(void *parameter) {
       }
 
       /* 调试: 每10次打印一次 */
-      static int print_cnt = 0;
-      if (++print_cnt >= 10) {
-        rt_kprintf("[rpmsg_motor] Feedback: %s\n", feedback_buf);
-        print_cnt = 0;
-      }
+      // static int print_cnt = 0;
+      // if (++print_cnt >= 10) {
+      //   rt_kprintf("[rpmsg_motor] Feedback: %s\n", feedback_buf);
+      //   print_cnt = 0;
+      // }
     }
 
     rt_thread_mdelay(feedback_interval_ms);
