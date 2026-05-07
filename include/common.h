@@ -1,18 +1,12 @@
 #ifndef MYCOMMON_H
 #define MYCOMMON_H
 
-// GPIO8 和 GPIO9 是 boot 引脚，最好不要用来控制电机
+/* 定义全局变量 */
 
-// common
-
-/* ================= UART ================= */
-
-#define MY_RX_BUF_SIZE 1024 // 定义 UART 接收缓冲区大小
-
-#define TXD_PIN (4)   // GPIO4
-#define RXD_PIN (5)   // GPIO5
-
-#define MY_UART_BAUD_RATE 115200
+// 线程频率控制
+#define DEFAULT_FEEDBACK_INTERVAL_MS 50 /* 默认反馈间隔 50ms (20Hz) */
+#define ENCODER_INTERVAL_MS 50 /* 编码器读取线程周期 50ms (20Hz) */
+#define CHASSIS_CTRL_INTERVAL_MS 50 /* 底盘控制线程周期 50ms (20Hz) */
 
 // PWM
 #define PWM_CHANNEL     1           /* PWM通道号 */

@@ -1,5 +1,5 @@
 /*
- * 双电机控制主程序 (精简版)
+ * 双电机控制主程序
  *
  * 主要功能已拆分到各个模块:
  * - motor_control.c: 电机控制函数和 MSH 命令
@@ -56,7 +56,7 @@ static rt_thread_t chassis_ctrl_thread = RT_NULL;
 
 /**
  * @brief 底盘控制线程入口函数
- *        以 30Hz 频率执行前馈控制 (后续可扩展为闭环控制)
+ *        以 30Hz 频率执行前馈控制 + PID 闭环控制
  */
 static void chassis_ctrl_thread_entry(void *parameter) {
   (void)parameter;
@@ -106,8 +106,8 @@ static void chassis_ctrl_thread_entry(void *parameter) {
     //     (int)(actual_speed2 * 1000), (int)(target_speed1 * 1000),
     //     (int)(target_speed2 * 1000), (int)(duty1 * 100), (int)(duty2 * 100));
 
-    /* 休眠 20ms, 实现 50Hz 控制频率 */
-    rt_thread_mdelay(20);
+    /* 休眠 CHASSIS_CTRL_INTERVAL_MS, 实现 1000/CHASSIS_CTRL_INTERVAL_MS Hz 控制频率 */
+    rt_thread_mdelay(CHASSIS_CTRL_INTERVAL_MS);
   }
 }
 
@@ -122,7 +122,7 @@ static rt_err_t chassis_ctrl_thread_start(void) {
       CHASSIS_CTRL_THREAD_TIMESLICE);
   if (chassis_ctrl_thread != RT_NULL) {
     rt_thread_startup(chassis_ctrl_thread);
-    rt_kprintf("[Chassis] Control thread started (30Hz)\n");
+    rt_kprintf("[Chassis] Control thread started (%dHz)\n", 1000 / CHASSIS_CTRL_INTERVAL_MS);
     return RT_EOK;
   } else {
     rt_kprintf("[Chassis] Failed to create control thread!\n");

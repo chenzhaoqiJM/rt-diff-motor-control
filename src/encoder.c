@@ -11,6 +11,8 @@
 #include "common.h"
 #include "encoder.h"
 
+static rt_int32_t encoder_interval_ms = ENCODER_INTERVAL_MS; /* 编码器读取线程周期 (ms) */
+
 /* 编码器计数器 (无符号，只累加) */
 static volatile rt_uint32_t encoder1_count = 0;
 static volatile rt_uint32_t encoder2_count = 0;
@@ -124,8 +126,7 @@ rt_err_t encoder2_init(void)
     rt_pin_mode(ENCODER_GPIO_MOTOR2_A, PIN_MODE_INPUT_PULLUP);
 
     /* 绑定 A 相中断，双边沿触发 */
-    rt_pin_attach_irq(ENCODER_GPIO_MOTOR2_A, PIN_IRQ_MODE_RISING_FALLING,
-                      encoder2_a_irq_callback, RT_NULL);
+    rt_pin_attach_irq(ENCODER_GPIO_MOTOR2_A, PIN_IRQ_MODE_RISING_FALLING, encoder2_a_irq_callback, RT_NULL);
     rt_pin_irq_enable(ENCODER_GPIO_MOTOR2_A, PIN_IRQ_ENABLE);
 
     encoder2_count = 0;
@@ -256,7 +257,6 @@ static void encoder1_thread_entry(void *parameter)
 {
     (void)parameter;
 
-    const rt_uint32_t period_ms = 20;  /* 周期 50ms = 20Hz */
     encoder1_last_tick = rt_tick_get();  /* 上次采样时间 */
 
     while (1)
@@ -284,7 +284,7 @@ static void encoder1_thread_entry(void *parameter)
         /* 保存 delta 用于调试 */
         shared_delta1 = delta1;
 
-        rt_thread_mdelay(period_ms);
+        rt_thread_mdelay(encoder_interval_ms);
     }
 }
 
@@ -296,7 +296,6 @@ static void encoder2_thread_entry(void *parameter)
 {
     (void)parameter;
 
-    const rt_uint32_t period_ms = 20;  /* 周期 50ms = 20Hz */
     encoder2_last_tick = rt_tick_get();  /* 上次采样时间 */
 
     while (1)
@@ -323,7 +322,7 @@ static void encoder2_thread_entry(void *parameter)
         /* 保存 delta 用于调试 */
         shared_delta2 = delta2;
 
-        rt_thread_mdelay(period_ms);
+        rt_thread_mdelay(encoder_interval_ms);
     }
 }
 
@@ -342,7 +341,7 @@ static rt_err_t encoder1_thread_start(void)
     if (encoder1_thread != RT_NULL)
     {
         rt_thread_startup(encoder1_thread);
-        rt_kprintf("[Encoder1] Thread started (20Hz)\n");
+        rt_kprintf("[Encoder1] Thread started (%dHz)\n", 1000 / encoder_interval_ms);
         return RT_EOK;
     }
     else
@@ -367,7 +366,7 @@ static rt_err_t encoder2_thread_start(void)
     if (encoder2_thread != RT_NULL)
     {
         rt_thread_startup(encoder2_thread);
-        rt_kprintf("[Encoder2] Thread started (20Hz)\n");
+        rt_kprintf("[Encoder2] Thread started (%dHz)\n", 1000 / encoder_interval_ms);
         return RT_EOK;
     }
     else
@@ -388,7 +387,7 @@ rt_err_t encoder_print_thread_start(void)
 
     if (ret1 == RT_EOK && ret2 == RT_EOK)
     {
-        rt_kprintf("[Encoder] Both encoder threads started (20Hz)\n");
+        rt_kprintf("[Encoder] Both encoder threads started (%dHz)\n", 1000 / encoder_interval_ms);
         return RT_EOK;
     }
     else

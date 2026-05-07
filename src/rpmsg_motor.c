@@ -18,7 +18,7 @@
 #include <string.h>
 #include <stdio.h>
 #include "rpmsg_motor.h"
-
+#include "common.h"
 /* ================= 配置参数 ================= */
 
 #define RPMSG_MOTOR_SERVICE_NAME "rpmsg:motor_ctrl"
@@ -28,8 +28,6 @@
 #define FEEDBACK_THREAD_STACK_SIZE 4096
 #define FEEDBACK_THREAD_PRIORITY 15
 #define FEEDBACK_THREAD_TIMESLICE 5
-
-#define DEFAULT_FEEDBACK_INTERVAL_MS 20 /* 默认反馈间隔 20ms (50Hz) */
 
 /* ================= 外部依赖 ================= */
 
