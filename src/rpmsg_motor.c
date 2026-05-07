@@ -145,7 +145,7 @@ static int rpmsg_motor_endpoint_cb(struct rpmsg_endpoint *ept, void *data,
   (void)priv;
   (void)len;
 
-  rt_kprintf("[rpmsg_motor] Recv: \"%s\" (src=%d)\n", recv_str, src);
+  // rt_kprintf("[rpmsg_motor] Recv: \"%s\" (src=%d)\n", recv_str, src);
 
   if (parse_cfg_command(recv_str, &ratio, &ff, &kp, &ki, &kd,
                         &feedback_cfg) == RT_EOK) {
@@ -164,9 +164,9 @@ static int rpmsg_motor_endpoint_cb(struct rpmsg_endpoint *ept, void *data,
 
   /* 解析速度指令 */
   if (parse_speed_command(recv_str, &dir1, &speed1, &dir2, &speed2) == RT_EOK) {
-    rt_kprintf(
-        "[rpmsg_motor] M1(dir=%d, speed=%d mr/s), M2(dir=%d, speed=%d mr/s)\n",
-        dir1, (int)(speed1 * 1000), dir2, (int)(speed2 * 1000));
+    // rt_kprintf(
+    //     "[rpmsg_motor] M1(dir=%d, speed=%d mr/s), M2(dir=%d, speed=%d mr/s)\n",
+    //     dir1, (int)(speed1 * 1000), dir2, (int)(speed2 * 1000));
     chassis_set_target(dir1, speed1, dir2, speed2);
   } else {
     rt_kprintf("[rpmsg_motor] Unknown command format!\n");

@@ -147,9 +147,9 @@ void chassis_set_target(int dir1, double speed1, int dir2, double speed2) {
   motor2_target_speed = speed2;
   rt_mutex_release(target_mutex);
 
-  rt_kprintf(
-      "[Chassis] Target set: M1(dir=%d, speed=%d mr/s), M2(dir=%d, speed=%d mr/s)\n",
-      dir1, (int)(speed1 * 1000), dir2, (int)(speed2 * 1000));
+  // rt_kprintf(
+  //     "[Chassis] Target set: M1(dir=%d, speed=%d mr/s), M2(dir=%d, speed=%d mr/s)\n",
+  //     dir1, (int)(speed1 * 1000), dir2, (int)(speed2 * 1000));
 }
 
 /**
