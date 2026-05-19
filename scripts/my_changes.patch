@@ -1,67 +1,7 @@
-diff --git a/bsp/spacemit/applications/SConscript b/bsp/spacemit/applications/SConscript
-index b95023ca4..5720e35de 100644
---- a/bsp/spacemit/applications/SConscript
-+++ b/bsp/spacemit/applications/SConscript
-@@ -2,9 +2,36 @@ Import('RTT_ROOT')
- Import('rtconfig')
- from building import *
- 
--cwd     = GetCurrentDir()
--src     = Glob('*.c')
--CPPPATH = GetCurrentDir()
-+cwd = GetCurrentDir()
-+
-+if rtconfig.BOARD == 'os0_rcpu':
-+	src = [
-+		'main.c',
-+	]
-+	CPPPATH = [
-+		cwd,
-+	]
-+elif rtconfig.BOARD == 'os1_rcpu':
-+	src = [
-+		'rt-diff-motor-control/control_main.c',
-+		'rt-diff-motor-control/src/motor_pwm.c',
-+		'rt-diff-motor-control/src/motor_gpio.c',
-+		'rt-diff-motor-control/src/encoder.c',
-+		'rt-diff-motor-control/src/motor_control.c',
-+		'rt-diff-motor-control/src/led_test.c',
-+		'rt-diff-motor-control/src/pid.c',
-+		'rt-diff-motor-control/src/rpmsg_test.c',
-+		'rt-diff-motor-control/src/rpmsg_motor.c',
-+	]
-+	CPPPATH = [
-+		cwd,
-+		cwd + '/rt-diff-motor-control/include',
-+	]
-+else:
-+	src = Glob('*.c')
-+	CPPPATH = [
-+		cwd,
-+	]
- 
- CCFLAGS = ' -c -ffunction-sections'
- 
 diff --git a/bsp/spacemit/drivers/rproc/spacemit-rproc.c b/bsp/spacemit/drivers/rproc/spacemit-rproc.c
-index 07ebcb32e..45cb39827 100644
+index 07ebcb32e..7ba869e90 100644
 --- a/bsp/spacemit/drivers/rproc/spacemit-rproc.c
 +++ b/bsp/spacemit/drivers/rproc/spacemit-rproc.c
-@@ -412,13 +412,13 @@ static rt_int32_t spacemit_rproc_probe(void)
- 					u32_value, u32_ptr, property_size) {
- 				rproc->shmem_size = u32_value;
- 			}
--	
-+
- 			/* get the proc id */
- 			for_each_property_cell(compatible_node, "proc_id",
- 					u32_value, u32_ptr, property_size) {
- 				rproc->procid = u32_value;
- 			}
--	
-+
- 			/* get the rsc id */
- 			for_each_property_cell(compatible_node, "rsc_id",
- 					u32_value, u32_ptr, property_size) {
 @@ -438,7 +438,7 @@ static rt_int32_t spacemit_rproc_probe(void)
  			tid = rt_thread_create(__compatible[i].compatible,
  					spacemit_platform_poll,
@@ -109,7 +49,7 @@ index 66019cd09..f8d0d0419 100644
        pinctrl-single,pins = <
            K3_PADCONF(GPIO_15, (MUX_MODE3 | EDGE_NONE | PULL_UP | PAD_DS8))    /* rpwm0 */
 diff --git a/bsp/spacemit/platform/rt24/os0_rcpu/com260/dts/k3_rt240_com260.dts b/bsp/spacemit/platform/rt24/os0_rcpu/com260/dts/k3_rt240_com260.dts
-index 129c9d2b2..d0067e74e 100644
+index 93b938640..c09785a04 100644
 --- a/bsp/spacemit/platform/rt24/os0_rcpu/com260/dts/k3_rt240_com260.dts
 +++ b/bsp/spacemit/platform/rt24/os0_rcpu/com260/dts/k3_rt240_com260.dts
 @@ -27,11 +27,11 @@
@@ -127,10 +67,10 @@ index 129c9d2b2..d0067e74e 100644
  
  &pwr_gpio {
 diff --git a/bsp/spacemit/platform/rt24/os1_rcpu/com260/dts/k3_rt241_com260.dts b/bsp/spacemit/platform/rt24/os1_rcpu/com260/dts/k3_rt241_com260.dts
-index 37f6e5ef5..909fb7f44 100644
+index 506c4d269..66c8e7f50 100644
 --- a/bsp/spacemit/platform/rt24/os1_rcpu/com260/dts/k3_rt241_com260.dts
 +++ b/bsp/spacemit/platform/rt24/os1_rcpu/com260/dts/k3_rt241_com260.dts
-@@ -20,15 +20,29 @@
+@@ -20,17 +20,31 @@
  };
  
  &pinctrl {
@@ -153,26 +93,19 @@ index 37f6e5ef5..909fb7f44 100644
 +	pinctrl-names = "default";
 +	pinctrl-0 = <&rpwm9_1_cfg>;
 +	status = "okay";
-+};
-+
+ };
+ 
 +&rpwm8 {
 +	pinctrl-names = "default";
 +	pinctrl-0 = <&rpwm8_1_cfg>;
 +	status = "okay";
- };
- 
++ };
++
  &uart0 {
-@@ -85,7 +99,7 @@
- };
- 
- &rproc {
--	status = "disabled";
-+	status = "okay";
- 	shared_mem_pa_base = <0x0 0xc086c000>;
- 	shared_mem_buf_offset = <0x40498000>;
- 	shared_mem_size	= <0x40594000>;
+ 	pinctrl-names = "default";
+ 	pinctrl-0 = <&ruart0_3_cfg>;
 diff --git a/bsp/spacemit/platform/rt24/os1_rcpu/rt24_os1_rcpu_defconfig b/bsp/spacemit/platform/rt24/os1_rcpu/rt24_os1_rcpu_defconfig
-index a556f91be..49f177a66 100644
+index 946e1e40f..b424e4c8b 100644
 --- a/bsp/spacemit/platform/rt24/os1_rcpu/rt24_os1_rcpu_defconfig
 +++ b/bsp/spacemit/platform/rt24/os1_rcpu/rt24_os1_rcpu_defconfig
 @@ -14,11 +14,11 @@ CONFIG_RT_ALIGN_SIZE=4
@@ -182,11 +115,9 @@ index a556f91be..49f177a66 100644
 -CONFIG_RT_TICK_PER_SECOND=100
 +CONFIG_RT_TICK_PER_SECOND=1000
  # CONFIG_RT_USING_OVERFLOW_CHECK is not set
--# CONFIG_RT_USING_HOOK is not set
--# CONFIG_RT_USING_IDLE_HOOK is not set
+ # CONFIG_RT_USING_HOOK is not set
+ # CONFIG_RT_USING_IDLE_HOOK is not set
 -CONFIG_IDLE_THREAD_STACK_SIZE=4096
-+CONFIG_RT_USING_HOOK=y
-+CONFIG_RT_USING_IDLE_HOOK=y
 +CONFIG_IDLE_THREAD_STACK_SIZE=8192
  # CONFIG_RT_USING_TIMER_SOFT is not set
  
@@ -218,41 +149,19 @@ index a556f91be..49f177a66 100644
  CONFIG_RT_USING_CLK=y
  CONFIG_RT_USING_DMA=y
  # CONFIG_RT_USING_MTD_NOR is not set
-@@ -458,7 +458,8 @@ CONFIG_RT_USING_FDT=y
- # CONFIG_PKG_USING_URLENCODE is not set
+@@ -459,6 +459,7 @@ CONFIG_RT_USING_FDT=y
  # CONFIG_PKG_USING_UMCN is not set
  # CONFIG_PKG_USING_LWRB2RTT is not set
--# CONFIG_PKG_USING_CPU_USAGE is not set
+ # CONFIG_PKG_USING_CPU_USAGE is not set
 +CONFIG_PKG_USING_CPU_USAGE=y
-+CONFIG_RT_USING_CPU_USAGE=y
  # CONFIG_PKG_USING_GBK2UTF8 is not set
  # CONFIG_PKG_USING_VCONSOLE is not set
  # CONFIG_PKG_USING_KDB is not set
-@@ -1215,7 +1216,7 @@ CONFIG_RT_USING_FDT=y
- #
- CONFIG_BSP_USING_PIN=y
- CONFIG_BSP_USING_GPIO=y
--# CONFIG_BSP_GPIO_TEST is not set
-+CONFIG_BSP_GPIO_TEST=y
- CONFIG_BSP_USING_UART=y
- # CONFIG_BSP_UART_TEST is not set
- # CONFIG_BSP_USING_ADMA is not set
-@@ -1226,7 +1227,8 @@ CONFIG_BSP_USING_I2C=y
- # CONFIG_BSP_USING_WDT is not set
+@@ -1227,6 +1228,7 @@ CONFIG_BSP_USING_I2C=y
  # CONFIG_BSP_USING_IR is not set
  CONFIG_BSP_USING_PM=y
--# CONFIG_BSP_USING_PWM is not set
+ # CONFIG_BSP_USING_PWM is not set
 +CONFIG_BSP_USING_PWM=y
-+CONFIG_BSP_PWM_TEST=y
  # CONFIG_BSP_USING_SPI is not set
  # CONFIG_BSP_SPI_DMA_TEST is not set
  # CONFIG_BSP_USING_HWTIMER is not set
-@@ -1236,7 +1238,7 @@ CONFIG_BSP_USING_MAILBOX=y
- # CONFIG_BSP_PIN_TEST is not set
- # CONFIG_BSP_PIN_WAKEUP_TEST is not set
- CONFIG_BSP_USING_RPMSG=y
--# CONFIG_BSP_RPROC_TEST is not set
-+CONFIG_BSP_RPROC_TEST=y
- CONFIG_BSP_USING_REGULATOR=y
- # CONFIG_BSP_REGULATOR_TEST is not set
- # CONFIG_BSP_I2C_TEST is not set
