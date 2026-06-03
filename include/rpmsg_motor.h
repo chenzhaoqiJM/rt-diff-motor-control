@@ -54,6 +54,13 @@ extern void chassis_get_status(int *dir1, int *speed1_mrs, int *dir2,
                                int *speed2_mrs);
 
 /**
+ * @brief 获取电机实时 PWM 占空比
+ * @param[out] duty1_permille 电机1占空比 (千分比, 0~1000)
+ * @param[out] duty2_permille 电机2占空比 (千分比, 0~1000)
+ */
+extern void chassis_get_duty(int *duty1_permille, int *duty2_permille);
+
+/**
  * @brief 更新底盘控制参数
  * @param reduction_ratio 减速比
  * @param ff 前馈系数

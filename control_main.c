@@ -33,6 +33,10 @@ static int motor2_target_dir = 0;
 static double motor1_target_speed = 0.0;
 static double motor2_target_speed = 0.0;
 
+/* 实时 PWM 占空比 (0.0 ~ 1.0), 由底盘控制线程更新 */
+static double motor1_duty = 0.0;
+static double motor2_duty = 0.0;
+
 /* 前馈控制系数 (转速到占空比) */
 static double ff_factor = 0.3;
 
@@ -94,6 +98,12 @@ static void chassis_ctrl_thread_entry(void *parameter) {
     // 转速到 PWM 占空比系数约为 0.25~0.28, 最大占空比 1.0
     duty1 = PID_FF_Update(&pid_motor1, actual_speed1, pwm_ff1);
     duty2 = PID_FF_Update(&pid_motor2, actual_speed2, pwm_ff2);
+
+    /* 保存实时占空比供反馈读取 */
+    rt_mutex_take(target_mutex, RT_WAITING_FOREVER);
+    motor1_duty = duty1;
+    motor2_duty = duty2;
+    rt_mutex_release(target_mutex);
 
     /* 执行电机控制 */
     motor_control(1, dir1, (float)duty1);
@@ -174,6 +184,18 @@ void chassis_get_status(int *dir1, int *speed1_mrs, int *dir2,
   /* 转换为毫转/秒 */
   *speed1_mrs = (int)(actual_speed1 * 1000);
   *speed2_mrs = (int)(actual_speed2 * 1000);
+}
+
+/**
+ * @brief 获取电机实时 PWM 占空比 (供 RPMsg 模块读取反馈)
+ * @param[out] duty1_permille 电机1占空比 (千分比, 0~1000)
+ * @param[out] duty2_permille 电机2占空比 (千分比, 0~1000)
+ */
+void chassis_get_duty(int *duty1_permille, int *duty2_permille) {
+  rt_mutex_take(target_mutex, RT_WAITING_FOREVER);
+  *duty1_permille = (int)(motor1_duty * 1000);
+  *duty2_permille = (int)(motor2_duty * 1000);
+  rt_mutex_release(target_mutex);
 }
 
 /**

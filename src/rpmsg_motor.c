@@ -5,7 +5,7 @@
  *
  * 协议:
  * - 接收速度指令: "1,0.5;1,0.5" (方向1,转速1;方向2,转速2)
- * - 发送状态反馈: "1,500;2,480" (方向1,转速1 mr/s;方向2,转速2 mr/s)
+ * - 发送状态反馈: "1,500,250;2,480,260" (方向,转速mr/s,PWM占空比千分比; 每电机一组)
  */
 
 #include <openamp/remoteproc.h>
@@ -192,6 +192,7 @@ static void feedback_thread_entry(void *parameter) {
   char feedback_buf[64];
   int dir1, dir2;
   int speed1_mrs, speed2_mrs;
+  int duty1_pm, duty2_pm;
 
   (void)parameter;
 
@@ -208,8 +209,9 @@ static void feedback_thread_entry(void *parameter) {
     if (feedback_enabled) {
       /* 发送电机状态反馈 */
       chassis_get_status(&dir1, &speed1_mrs, &dir2, &speed2_mrs);
-      rt_snprintf(feedback_buf, sizeof(feedback_buf), "%d,%d;%d,%d", dir1,
-                  speed1_mrs, dir2, speed2_mrs);
+      chassis_get_duty(&duty1_pm, &duty2_pm);
+      rt_snprintf(feedback_buf, sizeof(feedback_buf), "%d,%d,%d;%d,%d,%d", dir1,
+                  speed1_mrs, duty1_pm, dir2, speed2_mrs, duty2_pm);
 
       /* 发送反馈 */
       int ret =
