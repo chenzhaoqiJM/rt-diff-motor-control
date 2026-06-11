@@ -66,10 +66,66 @@ index 93b938640..c09785a04 100644
  };
  
  &pwr_gpio {
+diff --git a/bsp/spacemit/platform/rt24/os0_rcpu/com260_ifx/dts/k3_rt240_com260_ifx.dts b/bsp/spacemit/platform/rt24/os0_rcpu/com260_ifx/dts/k3_rt240_com260_ifx.dts
+index 3ccaf9b5d..3eb456369 100644
+--- a/bsp/spacemit/platform/rt24/os0_rcpu/com260_ifx/dts/k3_rt240_com260_ifx.dts
++++ b/bsp/spacemit/platform/rt24/os0_rcpu/com260_ifx/dts/k3_rt240_com260_ifx.dts
+@@ -27,11 +27,11 @@
+ };
+ 
+ &gpio {
+-	status = "okay";
++	status = "disabled";
+ };
+ 
+ &r_gpio {
+-	status = "okay";
++	status = "disabled";
+ };
+ 
+ &pwr_gpio {
 diff --git a/bsp/spacemit/platform/rt24/os1_rcpu/com260/dts/k3_rt241_com260.dts b/bsp/spacemit/platform/rt24/os1_rcpu/com260/dts/k3_rt241_com260.dts
 index 506c4d269..66c8e7f50 100644
 --- a/bsp/spacemit/platform/rt24/os1_rcpu/com260/dts/k3_rt241_com260.dts
 +++ b/bsp/spacemit/platform/rt24/os1_rcpu/com260/dts/k3_rt241_com260.dts
+@@ -20,17 +20,31 @@
+ };
+ 
+ &pinctrl {
++	pinctrl-names = "default";
++	pinctrl-0 = <&rgpio31_cfg>, <&rgpio30_cfg>, <&rgpio35_cfg>;
+ 	status = "okay";
+ };
+ 
+ &gpio {
+-	status = "disabled";
++	status = "okay";
+ };
+ 
+ &r_gpio {
+-	status = "disabled";
++	status = "okay";
++};
++
++&rpwm9 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&rpwm9_1_cfg>;
++	status = "okay";
+ };
+ 
++&rpwm8 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&rpwm8_1_cfg>;
++	status = "okay";
++ };
++
+ &uart0 {
+ 	pinctrl-names = "default";
+ 	pinctrl-0 = <&ruart0_3_cfg>;
+diff --git a/bsp/spacemit/platform/rt24/os1_rcpu/com260_ifx/dts/k3_rt241_com260_ifx.dts b/bsp/spacemit/platform/rt24/os1_rcpu/com260_ifx/dts/k3_rt241_com260_ifx.dts
+index c46bcc811..849800a9b 100644
+--- a/bsp/spacemit/platform/rt24/os1_rcpu/com260_ifx/dts/k3_rt241_com260_ifx.dts
++++ b/bsp/spacemit/platform/rt24/os1_rcpu/com260_ifx/dts/k3_rt241_com260_ifx.dts
 @@ -20,17 +20,31 @@
  };
  
